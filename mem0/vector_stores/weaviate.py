@@ -83,39 +83,6 @@ class Weaviate(VectorStoreBase):
         self.embedding_model_dims = embedding_model_dims
         self.create_col(embedding_model_dims)
 
-    def _parse_output(self, data: Dict) -> List[OutputData]:
-        """
-        Parse the output data.
-
-        Args:
-            data (Dict): Output data.
-
-        Returns:
-            List[OutputData]: Parsed output data.
-        """
-        keys = ["ids", "distances", "metadatas"]
-        values = []
-
-        for key in keys:
-            value = data.get(key, [])
-            if isinstance(value, list) and value and isinstance(value[0], list):
-                value = value[0]
-            values.append(value)
-
-        ids, distances, metadatas = values
-        max_length = max(len(v) for v in values if isinstance(v, list) and v is not None)
-
-        result = []
-        for i in range(max_length):
-            entry = OutputData(
-                id=ids[i] if isinstance(ids, list) and ids and i < len(ids) else None,
-                score=(distances[i] if isinstance(distances, list) and distances and i < len(distances) else None),
-                payload=(metadatas[i] if isinstance(metadatas, list) and metadatas and i < len(metadatas) else None),
-            )
-            result.append(entry)
-
-        return result
-
     def create_col(self, vector_size, distance="cosine"):
         """
         Create a new collection with the specified schema.

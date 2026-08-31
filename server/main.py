@@ -220,7 +220,15 @@ class SearchRequest(BaseModel):
     agent_id: Optional[str] = Field(None, description="Deprecated: pass inside `filters` instead.", deprecated=True)
     filters: Optional[Dict[str, Any]] = None
     top_k: Optional[int] = Field(None, description="Maximum number of results to return.")
-    threshold: Optional[float] = Field(None, description="Minimum similarity score for results.")
+    threshold: Optional[float] = Field(
+        None,
+        description=(
+            "Minimum semantic similarity, applied before blending. Not the `score` field "
+            "in the response, which blends semantic, keyword, entity and recency signals: "
+            "threshold=0.45 can return rows whose score reads 0.41. Compare against each "
+            "result's `semantic_score`, never against `score`."
+        ),
+    )
     explain: Optional[bool] = Field(None, description="Include score details for each search result.")
     show_expired: Optional[bool] = Field(None, description="Include expired memories.")
 

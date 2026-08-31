@@ -287,6 +287,47 @@ def test_a_stores_declared_keyword_scale_decides_the_curve(
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
 @patch('mem0.memory.storage.SQLiteManager')
+def test_a_result_reports_the_score_that_threshold_gates(
+    mock_sqlite, mock_llm_factory, mock_vector_factory, mock_embedder_factory, _mock_extract_entities
+):
+    """`threshold` and `score` are different quantities wearing the same units.
+    threshold gates the semantic similarity before blending; score is the blend
+    of semantic, bm25, entity and recency. So threshold=0.45 legitimately
+    returns rows whose score reads 0.41, and nothing in the response reconciled
+    the two -- a caller could only recover it by re-deriving the blend, which
+    silently goes wrong every time the weights change.
+    """
+    mock_embedder = MagicMock()
+    mock_embedder.embed.return_value = [0.1, 0.2, 0.3]
+    mock_embedder_factory.return_value = mock_embedder
+
+    mock_vector_store = MagicMock()
+    mock_vector_store.search.return_value = [
+        MockVectorMemory("mem_1", {"data": "content", "user_id": "test"}, score=0.8)
+    ]
+    mock_vector_store.keyword_search.return_value = None
+    mock_vector_factory.return_value = mock_vector_store
+    mock_llm_factory.return_value = MagicMock()
+    mock_sqlite.return_value = MagicMock()
+
+    from mem0.memory.main import Memory as MemoryClass
+    memory = MemoryClass(MemoryConfig())
+
+    # No explain: the quantity threshold acts on should not be opt-in.
+    result = memory.search("test query", filters={"user_id": "test"})
+
+    hit = result["results"][0]
+    assert hit["semantic_score"] == 0.8
+    assert hit["score"] != hit["semantic_score"], (
+        "blended score and semantic score coincided, so this asserts nothing"
+    )
+
+
+@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.utils.factory.EmbedderFactory.create')
+@patch('mem0.utils.factory.VectorStoreFactory.create')
+@patch('mem0.utils.factory.LlmFactory.create')
+@patch('mem0.memory.storage.SQLiteManager')
 def test_search_returns_keyword_hit_missing_from_semantic_results(
     mock_sqlite, mock_llm_factory, mock_vector_factory, mock_embedder_factory, _mock_extract_entities
 ):

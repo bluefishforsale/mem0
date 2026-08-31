@@ -212,9 +212,17 @@ def score_and_rank(
 
         combined = min(weighted, 1.0)
 
+        # NOTE: semantic_score rides alongside the blend unconditionally, not
+        # behind `explain`. `threshold` gates this number, while `score` is the
+        # blend of all four signals, so threshold=0.45 legitimately returns rows
+        # whose score reads 0.41. Without this, reconciling the two means
+        # re-deriving the blend from the weights, which silently goes wrong the
+        # next time they change. A caller that wants a stable cutoff should use
+        # `threshold`, or compare against this, and never against `score`.
         scored_result = {
             "id": mem_id_str,
             "score": combined,
+            "semantic_score": semantic_score,
             "payload": result.get("payload"),
         }
         if explain:

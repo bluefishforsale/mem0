@@ -178,6 +178,14 @@ Each result includes `score_details` with the semantic score, normalized BM25 sc
 
 The final score is a fixed weighted blend, `0.55 * semantic + 0.28 * bm25 + 0.09 * entity + 0.08 * recency`. The weights are constant and sum to 1, so a score is always in `[0, 1]` and means the same thing from one query to the next. A signal a memory does not have contributes 0 rather than rescaling the others.
 
+<Warning>
+`threshold` and `score` are different quantities. `threshold` gates the **semantic similarity**, before blending; `score` is the blend above. So `threshold=0.45` can legitimately return memories whose `score` reads `0.41`, and a client-side filter written against `score` will not mean what a `threshold` of the same value means.
+
+Every result therefore carries `semantic_score` alongside `score`, without needing `explain`. It is the number `threshold` was applied to.
+
+**If you need a stable cutoff, pass `threshold` and let the server apply it, or compare against `semantic_score`.** Never filter on `score`: it is a blend, so its value shifts whenever the blend weights or any input signal changes, and a filter written against it silently becomes stricter or looser without erroring.
+</Warning>
+
 A memory found by keyword search but ranked outside the semantic candidate pool has no measured semantic score at all. Those are renormalized over the signals they can actually earn, so a strong term match is not penalized for a similarity nobody computed.
 
 ### Recency

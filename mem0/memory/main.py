@@ -1572,7 +1572,12 @@ class Memory(MemoryBase):
                 - {"AND": [filter1, filter2]} - logical AND
                 - {"OR": [filter1, filter2]} - logical OR
                 - {"NOT": [filter1]} - logical NOT
-            threshold (float, optional): Minimum score for a memory to be included. Defaults to 0.1.
+            threshold (float, optional): Minimum *semantic* similarity for a memory to be
+                included, applied before blending. This is NOT the ``score`` field in the
+                results, which is the blend of semantic, keyword, entity and recency
+                signals, so threshold=0.45 can return rows whose score reads 0.41. Compare
+                against ``semantic_score`` in each result, never against ``score``.
+                Defaults to 0.1.
             rerank (bool, optional): Whether to rerank results. Defaults to False.
             explain (bool, optional): Whether to include score_details for each result. Defaults to False.
             reference_date (Any, optional): Platform-only temporal parameter. Not supported in OSS.
@@ -1904,6 +1909,8 @@ class Memory(MemoryBase):
                 if not memory_item_dict.get("metadata"):
                     memory_item_dict["metadata"] = {}
                 memory_item_dict["metadata"].update(additional_metadata)
+            # The number `threshold` gates, always. See scoring.score_and_rank.
+            memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:
                 memory_item_dict["score_details"] = scored["score_details"]
 
@@ -3316,7 +3323,12 @@ class AsyncMemory(MemoryBase):
                 - {"AND": [filter1, filter2]} - logical AND
                 - {"OR": [filter1, filter2]} - logical OR
                 - {"NOT": [filter1]} - logical NOT
-            threshold (float, optional): Minimum score for a memory to be included. Defaults to 0.1.
+            threshold (float, optional): Minimum *semantic* similarity for a memory to be
+                included, applied before blending. This is NOT the ``score`` field in the
+                results, which is the blend of semantic, keyword, entity and recency
+                signals, so threshold=0.45 can return rows whose score reads 0.41. Compare
+                against ``semantic_score`` in each result, never against ``score``.
+                Defaults to 0.1.
             rerank (bool, optional): Whether to rerank results. Defaults to False.
             explain (bool, optional): Whether to include score_details for each result. Defaults to False.
             reference_date (Any, optional): Platform-only temporal parameter. Not supported in OSS.
@@ -3653,6 +3665,8 @@ class AsyncMemory(MemoryBase):
                 if not memory_item_dict.get("metadata"):
                     memory_item_dict["metadata"] = {}
                 memory_item_dict["metadata"].update(additional_metadata)
+            # The number `threshold` gates, always. See scoring.score_and_rank.
+            memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:
                 memory_item_dict["score_details"] = scored["score_details"]
 
