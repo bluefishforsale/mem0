@@ -245,6 +245,48 @@ def test_search_explain_includes_score_details(
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
 @patch('mem0.memory.storage.SQLiteManager')
+def test_a_stores_declared_keyword_scale_decides_the_curve(
+    mock_sqlite, mock_llm_factory, mock_vector_factory, mock_embedder_factory, _mock_extract_entities
+):
+    """Keyword scores were normalized with one curve tuned for raw BM25 (0-20+),
+    whatever the store actually returns. Postgres ts_rank_cd tops out near 0.6,
+    so a strong keyword match normalized to ~0.036 and the BM25 arm could not
+    move a ranking. The store declares its scale; the curve follows.
+    """
+    mock_embedder = MagicMock()
+    mock_embedder.embed.return_value = [0.1, 0.2, 0.3]
+    mock_embedder_factory.return_value = mock_embedder
+
+    mock_vector_store = MagicMock()
+    mock_vector_store.KEYWORD_SCORE_SCALE = "ts_rank_cd"
+    mock_vector_store.search.return_value = [
+        MockVectorMemory("mem_1", {"data": "content", "user_id": "test"}, score=0.8)
+    ]
+    # 0.3 is a p99 ts_rank_cd match on a real store, i.e. about as good as this
+    # scale gets. Through the BM25 curve it lands at 0.036.
+    mock_vector_store.keyword_search.return_value = [
+        MockVectorMemory("mem_1", {"data": "content", "user_id": "test"}, score=0.3)
+    ]
+    mock_vector_factory.return_value = mock_vector_store
+    mock_llm_factory.return_value = MagicMock()
+    mock_sqlite.return_value = MagicMock()
+
+    from mem0.memory.main import Memory as MemoryClass
+    memory = MemoryClass(MemoryConfig())
+
+    result = memory.search("test query", filters={"user_id": "test"}, explain=True)
+
+    details = result["results"][0]["score_details"]
+    assert details["bm25_score"] > 0.6, (
+        f"a top-percentile keyword match normalized to {details['bm25_score']:.3f}"
+    )
+
+
+@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.utils.factory.EmbedderFactory.create')
+@patch('mem0.utils.factory.VectorStoreFactory.create')
+@patch('mem0.utils.factory.LlmFactory.create')
+@patch('mem0.memory.storage.SQLiteManager')
 def test_search_returns_keyword_hit_missing_from_semantic_results(
     mock_sqlite, mock_llm_factory, mock_vector_factory, mock_embedder_factory, _mock_extract_entities
 ):

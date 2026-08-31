@@ -2,6 +2,16 @@ from abc import ABC, abstractmethod
 
 
 class VectorStoreBase(ABC):
+    #: The scale on which ``keyword_search`` returns its scores. Callers need
+    #: this because a keyword score is only meaningful next to the range it came
+    #: from, and the sixteen stores implementing keyword_search do not agree on
+    #: one. Declaring it wrong is worse than not implementing keyword_search at
+    #: all: the arm stays silently pinned to one end of its curve.
+    #:
+    #: ``bm25``        raw, unbounded BM25 (roughly 0-20), the common case.
+    #: ``ts_rank_cd``  Postgres full-text rank, roughly 0-0.6.
+    KEYWORD_SCORE_SCALE = "bm25"
+
     @abstractmethod
     def create_col(self, name, vector_size, distance):
         """Create a new collection."""

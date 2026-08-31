@@ -144,6 +144,10 @@ class OutputData(BaseModel):
 
 
 class PGVector(VectorStoreBase):
+    # keyword_search ranks with ts_rank_cd, not BM25. Different range entirely:
+    # about 0-0.6 against this store's 0-20+.
+    KEYWORD_SCORE_SCALE = "ts_rank_cd"
+
     def __init__(
         self,
         dbname,
