@@ -4,12 +4,13 @@ Scoring utilities for hybrid retrieval.
 Provides:
 - **BM25 normalization**: Sigmoid normalization of raw BM25 scores to [0, 1].
 - **BM25 parameter selection**: Query-length-adaptive sigmoid parameters.
-- **Additive scoring**: Combined scoring with semantic + BM25 + entity boost.
+- **Blended scoring**: Fixed-weight combination of semantic, BM25, and entity.
 """
 
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
@@ -54,7 +55,55 @@ def normalize_bm25(raw_score: float, midpoint: float, steepness: float) -> float
     return 1.0 / (1.0 + math.exp(-steepness * (raw_score - midpoint)))
 
 
+def recency_score(
+    payload: Optional[Dict[str, Any]],
+    half_life_days: float,
+    now: Optional[datetime] = None,
+) -> float:
+    """Exponential freshness in [0, 1] from a payload's last-touched timestamp.
+
+    Falls back to 0.0 when there is no usable timestamp: an undated memory is
+    almost always a legacy row, and treating unknown age as brand new would
+    float every one of them above memories whose age we can actually see.
+    """
+    if not payload or half_life_days <= 0:
+        return 0.0
+
+    stamp = payload.get("updated_at") or payload.get("created_at")
+    if not stamp:
+        return 0.0
+
+    try:
+        written = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return 0.0
+
+    if written.tzinfo is None:
+        written = written.replace(tzinfo=timezone.utc)
+
+    age_days = ((now or datetime.now(timezone.utc)) - written).total_seconds() / 86400.0
+    if age_days <= 0:
+        return 1.0
+    return 0.5 ** (age_days / half_life_days)
+
+
 ENTITY_BOOST_WEIGHT = 0.5
+
+# Fixed blend weights, summing to 1.0 so a combined score is always in [0, 1].
+# NOTE: these must not vary with which signals a batch happened to produce. A
+# divisor chosen from the batch makes a memory's score depend on what other
+# memories matched, which is invisible in ranking and wrong for any caller
+# thresholding on the number.
+W_SEMANTIC = 0.55
+W_BM25 = 0.28
+W_ENTITY = 0.09
+W_RECENCY = 0.08
+
+# Age at which a memory's recency signal has decayed to half. Deliberately long:
+# recency is here to break ties and to stop a stale preference beating this
+# week's correction, not to bury anything. Override per deployment with
+# MemoryConfig.recency_half_life_days.
+RECENCY_HALF_LIFE_DAYS = 180.0
 
 
 def score_and_rank(
@@ -64,21 +113,23 @@ def score_and_rank(
     threshold: float,
     top_k: int,
     explain: bool = False,
+    recency_half_life_days: float = RECENCY_HALF_LIFE_DAYS,
 ) -> List[Dict[str, Any]]:
-    """Score candidates additively and return top-k results.
+    """Score candidates by a fixed weighted blend and return top-k results.
 
     For each candidate:
         semantic_score is taken from the result's score field.
-        combined = (semantic + bm25 + entity_boost) / max_possible
+        combined = (W_SEMANTIC * semantic + W_BM25 * bm25
+                    + W_ENTITY * entity + W_RECENCY * recency)
+
+    The weights are constant and sum to 1.0, so a combined score is always in
+    [0, 1] and comparable across queries. A signal the candidate does not have
+    simply contributes 0.
 
     Threshold gates the semantic score BEFORE combining -- candidates
     below the threshold are excluded even if BM25/entity would boost them.
-
-    The divisor adapts based on which signals are active:
-        - Semantic only: max_possible = 1.0
-        - Semantic + BM25: max_possible = 2.0
-        - Semantic + BM25 + entity: max_possible = 2.5
-        - Semantic + entity (no BM25): max_possible = 1.5
+    Candidates flagged ``keyword_only`` have no measured semantic score and
+    are gated on their BM25 score instead.
 
     Args:
         semantic_results: Candidate memories from vector search.
@@ -91,14 +142,9 @@ def score_and_rank(
     Returns:
         List of scored result dicts sorted by combined score descending.
     """
-    has_bm25 = bool(bm25_scores)
-    has_entity = bool(entity_boosts)
-
-    max_possible = 1.0
-    if has_bm25:
-        max_possible += 1.0
-    if has_entity:
-        max_possible += ENTITY_BOOST_WEIGHT
+    # One clock read for the batch: every candidate in a result set must be aged
+    # against the same instant.
+    now = datetime.now(timezone.utc)
 
     scored: List[Dict[str, Any]] = []
 
@@ -107,16 +153,42 @@ def score_and_rank(
         if mem_id is None:
             continue
 
-        semantic_score = result.get("score") or 0.0
-        if semantic_score < threshold:
-            continue
-
         mem_id_str = str(mem_id)
         bm25_score = bm25_scores.get(mem_id_str, 0.0)
         entity_boost = entity_boosts.get(mem_id_str, 0.0)
 
-        raw_combined = semantic_score + bm25_score + entity_boost
-        combined = min(raw_combined / max_possible, 1.0)
+        semantic_score = result.get("score") or 0.0
+        if result.get("keyword_only"):
+            # No semantic score was ever measured for this candidate, so the
+            # semantic threshold cannot speak to it. Gate on the one signal
+            # we do have.
+            if bm25_score < threshold:
+                continue
+        elif semantic_score < threshold:
+            continue
+
+        # Entity boosts arrive pre-scaled to [0, ENTITY_BOOST_WEIGHT]; rescale
+        # so W_ENTITY is the only thing deciding how much entities count.
+        entity_signal = entity_boost / ENTITY_BOOST_WEIGHT
+        recency = recency_score(result.get("payload"), recency_half_life_days, now)
+
+        weighted = (
+            W_SEMANTIC * semantic_score
+            + W_BM25 * bm25_score
+            + W_ENTITY * entity_signal
+            + W_RECENCY * recency
+        )
+        if result.get("keyword_only"):
+            # Renormalize over the signals this candidate could actually earn:
+            # everything but semantic, which was never measured for it.
+            # NOTE: the divisor comes from the candidate's own missing data, not
+            # from what the rest of the batch produced, so scores stay
+            # comparable. Charging it the semantic weight instead would cap a
+            # perfect term match at W_BM25 and bury it under any mediocre
+            # semantic hit.
+            weighted /= W_BM25 + W_ENTITY + W_RECENCY
+
+        combined = min(weighted, 1.0)
 
         scored_result = {
             "id": mem_id_str,
@@ -128,8 +200,13 @@ def score_and_rank(
                 "semantic_score": semantic_score,
                 "bm25_score": bm25_score,
                 "entity_boost": entity_boost,
-                "raw_score": raw_combined,
-                "max_possible_score": max_possible,
+                "recency_score": recency,
+                "weights": {
+                    "semantic": W_SEMANTIC,
+                    "bm25": W_BM25,
+                    "entity": W_ENTITY,
+                    "recency": W_RECENCY,
+                },
                 "final_score": combined,
                 "threshold": threshold,
             }

@@ -72,12 +72,20 @@ import {
   scoreAndRank,
   getBm25Params,
   normalizeBm25,
+  DEDUP_SIMILARITY_THRESHOLD,
   ENTITY_BOOST_WEIGHT,
+  RECENCY_HALF_LIFE_DAYS,
+  RERANK_CANDIDATE_MULTIPLIER,
   ScoredResult,
 } from "../utils/scoring";
 import { getDefaultVectorStoreDbPath } from "../utils/sqlite";
 import { logger } from "../utils/logger";
-import { normalizeExpirationDate, payloadIsExpired } from "../utils/expiration";
+import {
+  normalizeExpirationDate,
+  normalizeObservationTimestamp,
+  payloadIsExpired,
+  payloadIsSuperseded,
+} from "../utils/expiration";
 import { getOrCreateMem0UserId } from "../../../client/config";
 
 export class LLMError extends Error {
@@ -340,6 +348,88 @@ export class Memory {
       await this._entityStore.initialize();
     }
     return this._entityStore;
+  }
+
+  /**
+   * Mark each memory the new extractions contradict as superseded.
+   *
+   * The old memory is kept and stamped rather than updated or deleted: a
+   * contradiction is the user changing their mind, and "what did they used to
+   * think" stays answerable. Non-fatal, one memory at a time, because losing a
+   * new memory over bookkeeping on an old one is the worse trade.
+   */
+  private async supersedeContradicted(
+    records: Array<{ memoryId: string; contradicts: string[] }>,
+    existingByIndex: Record<
+      string,
+      { id: string; payload?: Record<string, any> }
+    >,
+  ): Promise<void> {
+    const superseded = new Map<string, { mem: any; successorId: string }>();
+    for (const record of records) {
+      for (const index of record.contradicts) {
+        const mem = existingByIndex[String(index)];
+        if (mem && !superseded.has(mem.id)) {
+          superseded.set(mem.id, { mem, successorId: record.memoryId });
+        }
+      }
+    }
+
+    for (const [oldId, { mem, successorId }] of superseded) {
+      const payload = { ...(mem.payload ?? {}) };
+      if (payload.superseded_by) continue;
+      payload.superseded_by = successorId;
+      payload.superseded_at = new Date().toISOString();
+      try {
+        // This store's update() has no payload-only form, and search results do
+        // not carry vectors. Re-embedding the unchanged text reproduces the
+        // vector already stored.
+        const vector = await this.embedder.embed(payload.data ?? "", "add");
+        await this.vectorStore.update(oldId, vector, payload);
+        await this.db.addHistory(
+          oldId,
+          payload.data,
+          payload.data,
+          "SUPERSEDE",
+          payload.createdAt,
+          payload.superseded_at,
+        );
+      } catch (e) {
+        console.warn(`Failed to supersede memory ${oldId}: ${e}`);
+      }
+    }
+  }
+
+  /**
+   * Of `texts`, those a stored memory already says in different words.
+   *
+   * The extraction prompt asks the model to skip these, but it only sees the
+   * ten memories the Phase 1 search surfaced, and paraphrase slips through.
+   * Fails open: losing a memory is worse than storing a duplicate.
+   */
+  private async restatementsOfExisting(
+    texts: string[],
+    embedMap: Record<string, number[]>,
+    filters: SearchFilters,
+  ): Promise<Set<string>> {
+    const pairs = texts
+      .filter((t) => Object.prototype.hasOwnProperty.call(embedMap, t))
+      .map((t) => [t, embedMap[t]] as const);
+    if (pairs.length === 0) return new Set();
+
+    const restatements = new Set<string>();
+    const checks = pairs.map(async ([text, vector]) => {
+      try {
+        const matches = await this.vectorStore.search(vector, 1, filters);
+        if ((matches[0]?.score ?? 0) >= DEDUP_SIMILARITY_THRESHOLD) {
+          restatements.add(text);
+        }
+      } catch (e) {
+        console.warn(`Near-duplicate check failed, keeping "${text}": ${e}`);
+      }
+    });
+    await Promise.all(checks);
+    return restatements;
   }
 
   /**
@@ -721,15 +811,7 @@ export class Memory {
     messages: string | Message[],
     config: AddMemoryOptions,
   ): Promise<SearchResult> {
-    if (config?.timestamp !== undefined) {
-      await this._getNoticeTelemetryId();
-      throw new Error(
-        await getTemporalFeatureErrorMessage(this, {
-          triggerFunction: "add",
-          triggerParameter: "timestamp",
-        }),
-      );
-    }
+    const observedAt = normalizeObservationTimestamp(config?.timestamp);
 
     // Validate messages input
     if (messages === undefined || messages === null) {
@@ -787,6 +869,12 @@ export class Memory {
     // Normalize expiration date into the stored metadata (round-trips via get()).
     if (config.expirationDate != null) {
       metadata.expiration_date = normalizeExpirationDate(config.expirationDate);
+    }
+
+    // Backdated memories carry the date they describe, so recency measures the
+    // event rather than the import.
+    if (observedAt !== undefined) {
+      metadata.createdAt = observedAt;
     }
 
     if (!filters.user_id && !filters.agent_id && !filters.run_id) {
@@ -895,10 +983,12 @@ export class Memory {
 
     // Map UUIDs to integers (anti-hallucination)
     const existingMemories: Array<{ id: string; text: string }> = [];
-    const uuidMapping: Record<string, string> = {};
+    // The model reports contradictions by index; mapped back after extraction.
+    const existingByIndex: Record<string, (typeof existingResults)[number]> =
+      {};
     for (let idx = 0; idx < existingResults.length; idx++) {
       const mem = existingResults[idx];
-      uuidMapping[String(idx)] = mem.id;
+      existingByIndex[String(idx)] = mem;
       existingMemories.push({
         id: String(idx),
         text: mem.payload?.data ?? "",
@@ -917,6 +1007,7 @@ export class Memory {
       newMessages: parsedMessages,
       lastKMessages: lastMessages,
       customInstructions: this.customInstructions,
+      observationDate: (metadata.createdAt as string | undefined)?.slice(0, 10),
     });
 
     let response: string;
@@ -938,7 +1029,7 @@ export class Memory {
       id?: string;
       text?: string;
       attributed_to?: string;
-      linked_memory_ids?: string[];
+      contradicts?: string[];
     }> = [];
     try {
       const cleanResponse = extractJson(response);
@@ -995,18 +1086,25 @@ export class Memory {
       }
     }
 
-    // Phase 4-5: CPU processing + hash dedup
+    // Phase 4-5: CPU processing + dedup
     const existingHashes = new Set<string>();
     for (const mem of existingResults) {
       const h = mem.payload?.hash;
       if (h) existingHashes.add(h);
     }
 
+    const restatements = await this.restatementsOfExisting(
+      memTexts,
+      embedMap,
+      filters,
+    );
+
     const records: Array<{
       memoryId: string;
       text: string;
       embedding: number[];
       payload: Record<string, any>;
+      contradicts: string[];
     }> = [];
     const seenHashes = new Set<string>();
 
@@ -1019,19 +1117,25 @@ export class Memory {
       if (existingHashes.has(memHash) || seenHashes.has(memHash)) {
         continue;
       }
+      if (restatements.has(text)) {
+        continue;
+      }
       seenHashes.add(memHash);
 
       const textLemmatized = lemmatizeForBm25(text);
       const memoryId = uuidv4();
-      const now = new Date().toISOString();
+      // A backdated add() puts createdAt on the metadata; honour it so the
+      // memory carries the date it describes rather than the import time.
+      const createdAt =
+        (metadata.createdAt as string | undefined) ?? new Date().toISOString();
 
       const memPayload: Record<string, any> = {
         ...metadata,
         data: text,
         textLemmatized,
         hash: memHash,
-        createdAt: now,
-        updatedAt: now,
+        createdAt,
+        updatedAt: createdAt,
       };
       if (mem.attributed_to) {
         memPayload.attributedTo = mem.attributed_to;
@@ -1045,6 +1149,7 @@ export class Memory {
         text,
         embedding: embedMap[text],
         payload: memPayload,
+        contradicts: Array.isArray(mem.contradicts) ? mem.contradicts : [],
       });
     }
 
@@ -1130,6 +1235,9 @@ export class Memory {
         }
       }
     }
+
+    // Phase 6b: Retire memories the new extractions contradict
+    await this.supersedeContradicted(records, existingByIndex);
 
     // Phase 7: Batch entity linking
     try {
@@ -1377,6 +1485,7 @@ export class Memory {
       threshold = 0.1,
       explain = false,
       showExpired = false,
+      showSuperseded = false,
     } = config;
 
     await this._captureEvent("search", {
@@ -1547,23 +1656,46 @@ export class Memory {
       }
     }
 
-    // Step 7: Build candidate set from semantic results
+    // Step 7: Build candidate set from semantic and keyword results
     const candidates = semanticResults
-      .filter((mem) => showExpired || !payloadIsExpired(mem.payload))
+      .filter(
+        (mem) =>
+          (showExpired || !payloadIsExpired(mem.payload)) &&
+          (showSuperseded || !payloadIsSuperseded(mem.payload)),
+      )
       .map((mem) => ({
         id: String(mem.id),
         score: mem.score ?? 0,
         payload: mem.payload || {},
+        keywordOnly: false,
       }));
 
+    // NOTE: without these the hybrid ranking is semantic-recall-only, and an
+    // exact term match that embeds poorly is unreachable at any topK.
+    const seenIds = new Set(candidates.map((c) => c.id));
+    for (const mem of keywordResults ?? []) {
+      const memId = String(mem.id);
+      if (seenIds.has(memId) || !(memId in bm25Scores)) continue;
+      const payload = mem.payload || {};
+      if (!showExpired && payloadIsExpired(payload)) continue;
+      if (!showSuperseded && payloadIsSuperseded(payload)) continue;
+      seenIds.add(memId);
+      candidates.push({ id: memId, score: 0, payload, keywordOnly: true });
+    }
+
     // Step 8: Score and rank
+    // A reranker handed exactly topK rows can only reorder them, so over-fetch
+    // and let it promote something from below the cut.
+    const useReranker = Boolean(config.rerank && this.reranker);
     const scoredResults = scoreAndRank(
       candidates,
       bm25Scores,
       entityBoosts,
       threshold ?? 0.1,
-      topK,
+      useReranker ? topK * RERANK_CANDIDATE_MULTIPLIER : topK,
       explain,
+      this.config.recencyHalfLifeDays ?? RECENCY_HALF_LIFE_DAYS,
+      searchStartMs,
     );
 
     // Step 9: Format results
@@ -1591,10 +1723,8 @@ export class Memory {
 
     // Step 10: Optionally re-rank with the configured reranker. Opt-in per
     // search via `rerank: true`; a no-op when no reranker is configured.
-    const invokeReranker = Boolean(
-      config.rerank && this.reranker && results.length > 0,
-    );
-    let finalResults = results;
+    const invokeReranker = Boolean(useReranker && results.length > 0);
+    let finalResults = useReranker ? results.slice(0, topK) : results;
     if (invokeReranker) {
       try {
         const ranked = await this.reranker!.rerank(
@@ -1848,7 +1978,7 @@ export class Memory {
 
     await this._ensureInitialized();
 
-    const { topK = 20, showExpired = false } = config;
+    const { topK = 20, showExpired = false, showSuperseded = false } = config;
 
     // Validate and trim entity IDs in filters. Drop keys that resolve to
     // undefined so downstream vector stores don't receive
@@ -1877,13 +2007,16 @@ export class Memory {
       );
     }
 
-    // Over-fetch so expired memories dropped below still leave topK survivors.
-    const fetchLimit = showExpired ? topK : Math.max(topK * 4, 60);
+    // Over-fetch so hidden memories dropped below still leave topK survivors.
+    const fetchLimit =
+      showExpired && showSuperseded ? topK : Math.max(topK * 4, 60);
     const [memories] = await this.vectorStore.list(filters, fetchLimit);
 
-    const visibleMemories = showExpired
-      ? memories
-      : memories.filter((mem) => !payloadIsExpired(mem.payload));
+    const visibleMemories = memories.filter(
+      (mem) =>
+        (showExpired || !payloadIsExpired(mem.payload)) &&
+        (showSuperseded || !payloadIsSuperseded(mem.payload)),
+    );
 
     const results = visibleMemories.slice(0, topK).map((mem) => ({
       id: mem.id,

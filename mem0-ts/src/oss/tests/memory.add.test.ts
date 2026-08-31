@@ -15,17 +15,32 @@ jest.mock("../src/utils/factory", () => {
   const { MemoryHistoryManager } = jest.requireActual(
     "../src/storage/MemoryHistoryManager",
   );
-  const testEmbedding = new Array(1536).fill(0.1);
+  // A tiny hashed bag-of-words embedder. Related text must land near each other
+  // and unrelated text far apart: the previous constant vector made every pair
+  // cosine 1.0, which no real embedder does, and which quietly turned search
+  // into "return everything" and hid anything else keyed on similarity.
+  const testEmbedding = (text: string) => {
+    const vec = new Array(1536).fill(0);
+    for (const token of String(text)
+      .toLowerCase()
+      .match(/[a-z0-9]+/g) ?? []) {
+      let h = 0;
+      for (const ch of token) h = (h * 31 + ch.charCodeAt(0)) % 1536;
+      vec[h] += 1;
+    }
+    const norm = Math.sqrt(vec.reduce((a, v) => a + v * v, 0)) || 1;
+    return vec.map((v) => v / norm);
+  };
 
   class MockEmbedder {
     embeddingDims = 1536;
 
-    async embed(): Promise<number[]> {
-      return testEmbedding;
+    async embed(text: string): Promise<number[]> {
+      return testEmbedding(text);
     }
 
     async embedBatch(texts: string[]): Promise<number[][]> {
-      return texts.map(() => testEmbedding);
+      return texts.map(testEmbedding);
     }
   }
 
@@ -33,6 +48,7 @@ jest.mock("../src/utils/factory", () => {
     async generateResponse(messages: Array<{ role: string; content: string }>) {
       const userMsg = messages.find((m) => m.role === "user");
       const content = userMsg?.content ?? "";
+      (globalThis as any).__lastExtractionPrompt = content;
       const newMsgMatch = content.match(
         /## New Messages\n([\s\S]*?)(?=\n##|$)/,
       );
@@ -40,12 +56,14 @@ jest.mock("../src/utils/factory", () => {
         ? newMsgMatch[1].trim()
         : "extracted fact from input";
 
+      const contradicts = (globalThis as any).__contradictNextAdd;
       return JSON.stringify({
         memory: [
           {
             id: "0",
             text: extracted,
             attributed_to: "user",
+            ...(contradicts ? { contradicts } : {}),
           },
         ],
       });
@@ -339,5 +357,102 @@ describe("Memory - add()", () => {
     expect(result.results[0].metadata).toEqual(
       expect.objectContaining({ event: "ADD" }),
     );
+  });
+
+  // Regression: dedup was md5 of the exact text, so a restatement that differed
+  // by punctuation or casing alone was stored a second time and both copies came
+  // back in the same search.
+  test("does not store a restatement of an existing memory", async () => {
+    const scope = { userId: `${userId}-dedup` };
+    const first: SearchResult = await memory.add("User likes cold brew", scope);
+    expect(first.results.length).toBe(1);
+
+    const restated: SearchResult = await memory.add(
+      "user likes cold brew!",
+      scope,
+    );
+    expect(restated.results).toEqual([]);
+
+    const all: SearchResult = await memory.getAll({
+      filters: { user_id: scope.userId },
+    });
+    expect(all.results.length).toBe(1);
+  });
+
+  // Regression: add({ timestamp }) threw "not supported by the OSS Memory SDK",
+  // so an imported year-old transcript dated every "last week" to last week.
+  test("backdates createdAt to the supplied timestamp", async () => {
+    const result: SearchResult = await memory.add(
+      "I went to Lisbon last week",
+      {
+        userId: `${userId}-backdated`,
+        timestamp: "2023-05-24",
+      },
+    );
+    const stored: MemoryItem | null = await memory.get(result.results[0].id);
+    expect(stored!.createdAt).toContain("2023-05-24");
+    expect(stored!.updatedAt).toBe(stored!.createdAt);
+  });
+
+  test("grounds the extraction prompt on the supplied timestamp", async () => {
+    await memory.add("I went to Lisbon last week", {
+      userId: `${userId}-observed`,
+      timestamp: "2023-05-24",
+    });
+    // The LLM mock echoes back the "## New Messages" section, so read the prompt
+    // it was handed rather than the stored text.
+    expect((globalThis as any).__lastExtractionPrompt).toContain(
+      "## Observation Date\n2023-05-24",
+    );
+  });
+
+  test("rejects a timestamp it cannot parse", async () => {
+    await expect(
+      memory.add("anything", { userId, timestamp: "last tuesday" }),
+    ).rejects.toThrow("ISO-8601");
+  });
+
+  // Regression: the pipeline was ADD-only, so a fact and its later reversal both
+  // sat in the store and both came back in the same search.
+  test("hides a memory a later one contradicts", async () => {
+    const scope = { userId: `${userId}-contradiction` };
+    const first: SearchResult = await memory.add("User is vegetarian", scope);
+    const oldId = first.results[0].id;
+
+    (globalThis as any).__contradictNextAdd = ["0"];
+    await memory.add("User eats meat again", scope);
+    delete (globalThis as any).__contradictNextAdd;
+
+    const visible: SearchResult = await memory.getAll({
+      filters: { user_id: scope.userId },
+    });
+    expect(visible.results.map((r) => r.id)).not.toContain(oldId);
+
+    const all: SearchResult = await memory.getAll({
+      filters: { user_id: scope.userId },
+      showSuperseded: true,
+    });
+    expect(all.results.map((r) => r.id)).toContain(oldId);
+  });
+
+  test("leaves an uncontradicted memory visible", async () => {
+    const scope = { userId: `${userId}-nocontradiction` };
+    const first: SearchResult = await memory.add("User is vegetarian", scope);
+    await memory.add("User also enjoys long walks", scope);
+
+    const visible: SearchResult = await memory.getAll({
+      filters: { user_id: scope.userId },
+    });
+    expect(visible.results.map((r) => r.id)).toContain(first.results[0].id);
+  });
+
+  test("still stores a distinct fact about a familiar topic", async () => {
+    const scope = { userId: `${userId}-distinct` };
+    await memory.add("User likes cold brew", scope);
+    const second: SearchResult = await memory.add(
+      "User roasts their own beans every Sunday",
+      scope,
+    );
+    expect(second.results.length).toBe(1);
   });
 });

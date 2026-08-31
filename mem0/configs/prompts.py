@@ -493,27 +493,30 @@ Do NOT extract:
 - Assistant meta-commentary about its own capabilities
 
 
-## Summary
-
-A narrative summary of the user's profile from prior conversations. May be empty for new users. Use it to enrich extractions — it holds established context like names, locations, and relationships.
-
-
-## Recently Extracted Memories
-
-Memories already captured from recent messages in this session (up to 20). This is your primary deduplication reference — do not re-extract information already captured here.
-
-
 ## Existing Memories
 
 Memories currently in the system relevant to this conversation. Formatted as:
-[{"id": "uuid-string", "text": "..."}, ...]
+[{"id": "0", "text": "..."}, ...]
 
-Use these ONLY for deduplication and linking — do NOT extract new memories from Existing Memories. Your extractions must come exclusively from New Messages. If new information in New Messages is semantically equivalent to an Existing Memory with no meaningful new context, skip it.
+Use these for deduplication and for spotting contradictions — do NOT extract new memories from Existing Memories. Your extractions must come exclusively from New Messages. If new information in New Messages is semantically equivalent to an Existing Memory with no meaningful new context, skip it.
 
-When a new memory is related to an Existing Memory — same topic, overlapping entities, updated/shifted preference, follow-up event, or continuation of a narrative — include the Existing Memory's ID in the new memory's "linked_memory_ids" array. Your ADD output IDs remain sequential ("0", "1", ...) but linked_memory_ids uses the UUIDs from this list.
+When a new memory makes an Existing Memory no longer true, list that memory's id in the new memory's "contradicts" array. Use the ids exactly as given above.
+
+Contradiction means the old statement and the new one cannot both be true of the user now:
+- **Reversal**: "User is vegetarian" then "User eats meat again"
+- **Replacement**: "User works at Shopify" then "User started at Stripe last month"
+- **Correction**: "User's daughter is named Sara" then "actually her name is Sarah"
+
+These are NOT contradictions, and must not be listed:
+- A new event involving something already known ("User has a dog named Max" and "Max went camping")
+- More detail about the same fact ("User likes coffee" and "User likes it black")
+- Two things that can both be true at once ("User likes hiking" and "User likes swimming")
+- A past fact that was true when stated ("User lived in Berlin in 2019" is not contradicted by "User lives in Lisbon")
+
+When in doubt, do not list it. A missed contradiction leaves a stale memory in place; a wrong one hides a memory that was still true.
 
 
-IMPORTANT: An existing memory about an entity (e.g., "User has a dog named Max") does NOT mean all information about that entity has been captured. New events, activities, experiences, or details about a known entity MUST still be extracted as separate memories and linked back. Only skip extraction when the specific fact or event itself is already captured — not merely because the entity appears in an existing memory. "User has a dog named Max" and "User went on a camping trip with Max where they hiked and swam" are two distinct memories, not duplicates.
+IMPORTANT: An existing memory about an entity (e.g., "User has a dog named Max") does NOT mean all information about that entity has been captured. New events, activities, experiences, or details about a known entity MUST still be extracted as separate memories. Only skip extraction when the specific fact or event itself is already captured — not merely because the entity appears in an existing memory. "User has a dog named Max" and "User went on a camping trip with Max where they hiked and swam" are two distinct memories, not duplicates.
 
 
 ## Last k Messages
@@ -686,19 +689,8 @@ Misinterpreting the user's words is worse than not extracting at all.
   - RIGHT: "The Bajimaya v Reward Homes case involved construction starting in 2014, contract signed in 2015, with completion due by October 2015" / "The tribunal found Reward Homes breached its contract through poor workmanship, waterproofing defects, and non-compliance with the Building Code of Australia"
   - WRONG: "Assistant created a D&D adventure with enemies"
   - RIGHT: "The Lost Temple of the Djinn adventure includes 4 Mummies (AC 11, 45 HP), 2 Construct Guardians (AC 17, 110 HP), and 6 Skeletal Warriors (AC 12, 22 HP)"
-- **No Detail Contamination from Context**: When extracting from New Messages, do NOT import or merge details from Existing Memories or Recent Memories into the new extraction UNLESS the new message explicitly references those details. If the New Message says "I had a great meal" and an Existing Memory says "User's favorite restaurant is Olive Garden," do NOT produce "User had a great meal at Olive Garden" — the new message never mentioned the restaurant. Each extraction must be faithful to its source message only.
+- **No Detail Contamination from Context**: When extracting from New Messages, do NOT import or merge details from Existing Memories into the new extraction UNLESS the new message explicitly references those details. If the New Message says "I had a great meal" and an Existing Memory says "User's favorite restaurant is Olive Garden," do NOT produce "User had a great meal at Olive Garden" — the new message never mentioned the restaurant. Each extraction must be faithful to its source message only.
 
-
-## Memory Linking
-
-When extracting a new memory, check if it relates to any Existing Memory. Add related Existing Memory IDs to "linked_memory_ids". Link when:
-
-- **Same entity/topic**: New fact about a person, place, or thing already mentioned
-- **Updated preference**: A changed or evolved opinion on something previously captured
-- **Continuation**: Follow-up event or next step in a previously captured narrative
-- **Contradiction**: New information that conflicts with an existing memory
-
-Do NOT link memories that merely share a vague theme. Links should be specific and meaningful — the linked memories should be about the same specific entity, event, or topic. If no existing memories are related, omit linked_memory_ids or pass an empty array.
 
 
 # EXAMPLES
@@ -706,8 +698,6 @@ Do NOT link memories that merely share a vague theme. Links should be specific a
 
 ## Example 1: Multi-Topic Extraction
 
-Summary: ""
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "Hey! I'm Marcus. I just got promoted to Senior Engineer at Shopify last week - been grinding for two years for this. My wife Elena and I celebrated with dinner at Osteria Francescana, it's our go-to spot for special occasions. We're also expecting our first baby in March!"},
@@ -726,8 +716,6 @@ Three distinct topics — career, relationship/dining, family milestone — each
 
 ## Example 2: Extracting from Assistant Recommendations
 
-Summary: "User is an aspiring stand-up comedian interested in improving their craft."
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "Can you recommend some sports documentaries on Netflix with strong storytelling? I love \"The Last Dance\" by Michael Jordan."},
@@ -745,7 +733,6 @@ The user's viewing preference (Netflix stand-up comedy) is extracted alongside t
 
 ## Example 3: Nothing to Extract
 
-Summary: "User is a product manager named David."
 Existing Memories: [{"id": "0", "text": "David is a product manager at a fintech startup"}]
 New Messages:
 [{"role": "user", "content": "Hey, good morning!"},
@@ -756,7 +743,6 @@ Output: {"memory": []}
 
 ## Example 5: Deduplication — Skip Already Captured
 
-Recently Extracted: ["Marcus was promoted to Senior Engineer at Shopify around August 12, 2025"]
 Existing Memories: [{"id": "0", "text": "Marcus was promoted to Senior Engineer at Shopify around August 12, 2025"}]
 New Messages:
 [{"role": "user", "content": "Still can't believe I got the senior engineer promotion at Shopify!"}]
@@ -765,10 +751,23 @@ Observation Date: 2025-08-19
 Output: {"memory": []}
 
 
+## Example 5b: Contradiction — Retire What Is No Longer True
+
+Existing Memories: [{"id": "0", "text": "User is vegetarian and avoids all meat"}, {"id": "1", "text": "User's favourite restaurant is Osteria Francescana"}]
+New Messages:
+[{"role": "user", "content": "I started eating meat again a couple of months ago. Still love Osteria Francescana though."}]
+Observation Date: 2026-03-10
+
+Output:
+{"memory": [
+  {"id": "0", "text": "User started eating meat again around January 2026, having previously been vegetarian", "attributed_to": "user", "contradicts": ["0"]}
+]}
+
+The diet memory is contradicted and listed. The restaurant memory is merely mentioned again, not contradicted, so it is neither re-extracted nor listed.
+
+
 ## Example 6: Extract ALL Dimensions — Don't Miss Secondary Info
 
-Summary: "User is an aspiring actor."
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "As an aspiring actor, I'm looking for advice on improving my craft. Can you recommend some films on Netflix with strong acting performances like Daniel Day-Lewis in 'There Will Be Blood'? I also want to find online resources for acting techniques."},
@@ -787,7 +786,6 @@ Three dimensions: (1) career aspiration, (2) entertainment viewing preference, (
 
 ## Example 7: Vague Temporal References with Historical Observation Date
 
-Recently Extracted: ["User started reading 'The Hitchhiker's Guide to the Galaxy' on January 16, 2022"]
 Existing Memories: [{"id": "0", "text": "User started reading 'The Hitchhiker's Guide to the Galaxy' on January 16, 2022"}]
 New Messages:
 [{"role": "user", "content": "I've actually listened to Ready Player One as an audiobook recently and enjoyed the pop culture references."}]
@@ -802,8 +800,6 @@ Output:
 
 ## Example 8: Document / Reference Material — Extract Content, Not Actions
 
-Summary: ""
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "I want you to remember this case. If you understand, just say acknowledged. Bajimaya v Reward Homes Pty Ltd [2021] NSWCATAP 297 — The construction began in 2014, contract signed in 2015 with completion due by October 2015. The plaintiff received keys in December 2016 and found defects including incomplete works, poor workmanship, and non-compliance with the building code. The tribunal found the builder breached contract."},
@@ -822,8 +818,6 @@ The user shared reference material to be remembered. Extract the actual factual 
 
 ## Example 9: Structured Data with Counts and Specifics
 
-Summary: ""
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "Here are the enemy stat blocks for our D&D campaign: Mummies (4): AC 11, HP 45, Speed 20 ft, with Curse of the Pharaohs (DC 15 Wisdom) and Mummy Rot (DC 15 Constitution). Construct Guardians (2): AC 17, HP 110, Speed 30 ft, with Immutable Form, Magic Resistance, and Siege Monster. Skeletal Warriors (6): AC 12, HP 22, Speed 30 ft, with Undead Fortitude."},
@@ -840,28 +834,24 @@ Output:
 Every count (4 Mummies, 2 Construct Guardians, 6 Skeletal Warriors) and every specific value (AC, HP, DCs, trait names) is preserved. Dropping the counts or stat values would destroy the most queryable information.
 
 
-## Example 10: Memory Linking — Connecting Related Memories
+## Example 10: New Facts About an Already-Known Entity
 
-Summary: ""
-Recently Extracted: []
-Existing Memories: [{"id": "a1b2c3d4-5678-9abc-def0-111111111111", "text": "User has a dog named Poppy, a golden retriever"}, {"id": "b2c3d4e5-6789-abcd-ef01-222222222222", "text": "User works as a Senior Engineer at Shopify"}]
+Existing Memories: [{"id": "0", "text": "User has a dog named Poppy, a golden retriever"}, {"id": "1", "text": "User works as a Senior Engineer at Shopify"}]
 New Messages:
 [{"role": "user", "content": "Poppy had her vet checkup yesterday — she's healthy but needs to lose a few pounds. Also, I'm switching teams at work next month to the payments platform."}]
 Observation Date: 2025-03-15
 
 Output:
 {"memory": [
-  {"id": "0", "text": "User's dog Poppy had a vet checkup around March 14, 2025, is healthy but needs to lose weight", "linked_memory_ids": ["a1b2c3d4-5678-9abc-def0-111111111111"]},
-  {"id": "1", "text": "User is switching teams at Shopify to the payments platform in April 2025", "linked_memory_ids": ["b2c3d4e5-6789-abcd-ef01-222222222222"]}
+  {"id": "0", "text": "User's dog Poppy had a vet checkup around March 14, 2025, is healthy but needs to lose weight"},
+  {"id": "1", "text": "User is switching teams at Shopify to the payments platform in April 2025"}
 ]}
 
-Both new memories link to related existing memories — the vet checkup links to the existing Poppy memory, and the team switch links to the existing Shopify memory. This enables the system to build a graph of related memories.
+Poppy and Shopify both already appear in Existing Memories, but neither new fact is captured there. A known entity is not a reason to skip; only an already-captured fact is.
 
 
 ## Example 11: Long Multi-Topic Conversation — Don't Stop After First Topic
 
-Summary: ""
-Recently Extracted: []
 Existing Memories: []
 New Messages:
 [{"role": "user", "content": "I adopted a puppy named Max last weekend! He's a beagle mix."},
@@ -885,9 +875,7 @@ FIVE topics across 5 messages — each one extracted separately. Do not stop aft
 
 ## Example 12: Multi-Speaker Conversation — Extract From ALL Speakers
 
-Summary: "John has a dog named Max."
-Recently Extracted: []
-Existing Memories: [{"id": "a1b2c3d4-0000-0000-0000-111111111111", "text": "John has a dog named Max"}]
+Existing Memories: [{"id": "0", "text": "John has a dog named Max"}]
 New Messages:
 [{"role": "user", "content": "John: Max and I had a blast on our camping trip last summer. We hiked, swam, and made great memories. It was a really peaceful experience."},
  {"role": "assistant", "content": "Maria: That sounds amazing! I actually just got a new cat named Bailey last week — she's been such a joy already. Camping with pets is so soul-nourishing."},
@@ -896,12 +884,12 @@ Observation Date: 2023-08-11
 
 Output:
 {"memory": [
-  {"id": "0", "text": "John and his dog Max went on a camping trip in the summer of 2023 where they hiked, swam, and found it a peaceful experience", "linked_memory_ids": ["a1b2c3d4-0000-0000-0000-111111111111"]},
+  {"id": "0", "text": "John and his dog Max went on a camping trip in the summer of 2023 where they hiked, swam, and found it a peaceful experience"},
   {"id": "1", "text": "Maria got a new cat named Bailey around early August 2023 and describes her as a joy"},
   {"id": "2", "text": "John has a daughter named Sara and the family took a trip for her birthday in fall 2022"}
 ]}
 
-Three key lessons: (1) The existing memory "John has a dog named Max" does NOT mean all Max-related information is captured — the camping trip is a new event with specific activities (hiking, swimming) and must be extracted and linked. (2) Maria is a named speaker in the "assistant" role but shares a genuine personal fact (new cat Bailey) — this MUST be extracted with the same rigor as user facts. Her echo ("that sounds amazing", "camping is soul-nourishing") is correctly skipped, but her personal fact is not. (3) Sara's name and the birthday trip are separate factual details that each deserve their own extraction.
+Three key lessons: (1) The existing memory "John has a dog named Max" does NOT mean all Max-related information is captured — the camping trip is a new event with specific activities (hiking, swimming) and must be extracted. (2) Maria is a named speaker in the "assistant" role but shares a genuine personal fact (new cat Bailey) — this MUST be extracted with the same rigor as user facts. Her echo ("that sounds amazing", "camping is soul-nourishing") is correctly skipped, but her personal fact is not. (3) Sara's name and the birthday trip are separate factual details that each deserve their own extraction.
 
 
 # CRITICAL: Exhaustive Extraction Checklist
@@ -923,7 +911,7 @@ Return ONLY valid JSON parsable by json.loads(). No text, reasoning, explanation
 
 {
   "memory": [
-    {"id": "0", "text": "First extracted memory", "attributed_to": "user", "linked_memory_ids": ["uuid-of-related-existing-memory"]},
+    {"id": "0", "text": "First extracted memory", "attributed_to": "user"},
     {"id": "1", "text": "Second extracted memory", "attributed_to": "assistant"}
   ]
 }
@@ -933,7 +921,7 @@ Return ONLY valid JSON parsable by json.loads(). No text, reasoning, explanation
 - **id** (string, required): Sequential integers as strings starting at "0".
 - **text** (string, required): A contextually rich, self-contained factual statement (15-80 words).
 - **attributed_to** (string, required): Who this memory is about. Use "user" for facts stated by or about the user (preferences, plans, personal facts). Use "assistant" for information provided by the assistant (recommendations, confirmations, plans created, information researched).
-- **linked_memory_ids** (array of strings, optional): IDs of Existing Memories that this new memory relates to. Use the exact IDs from the Existing Memories list. Omit or pass [] if no existing memories are related.
+- **contradicts** (array of strings, optional): ids of Existing Memories this new memory makes untrue. Use the exact ids from the Existing Memories list. Omit or pass [] when nothing is contradicted.
 
 ## Rules
 
@@ -972,13 +960,6 @@ def _truncate_content(text, limit=PAST_MESSAGE_TRUNCATION_LIMIT):
     return text[:limit] + "..."
 
 
-def _format_summary(summary):
-    """Extract summary text from a string or dict with a 'summary' key."""
-    if isinstance(summary, dict):
-        return summary.get("summary", "")
-    return summary or ""
-
-
 def _format_conversation_history(messages):
     """Format message dicts into 'role: content' lines with truncation."""
     if not messages:
@@ -1005,17 +986,26 @@ def _format_new_messages(new_messages):
 
 
 def _resolve_dates(current_date=None, observation_date=None):
-    """Resolve current and observation dates, defaulting to today."""
-    if current_date is None:
-        current_date = datetime.now(timezone.utc).date().isoformat()
-    if observation_date is None:
-        observation_date = current_date
+    """Resolve current and observation dates, defaulting to today.
+
+    Both render as bare YYYY-MM-DD; the prompt grounds relative references
+    against the day, so a full timestamp is trimmed rather than rejected.
+    """
+
+    def _as_date(value):
+        if value is None:
+            return None
+        try:
+            return datetime.fromisoformat(str(value)).date().isoformat()
+        except ValueError:
+            return str(value)
+
+    current_date = _as_date(current_date) or datetime.now(timezone.utc).date().isoformat()
+    observation_date = _as_date(observation_date) or current_date
     return current_date, observation_date
 
 
 def generate_additive_extraction_prompt(
-    summary=None,
-    recently_extracted_memories=None,
     existing_memories=None,
     new_messages=None,
     *,
@@ -1025,17 +1015,15 @@ def generate_additive_extraction_prompt(
     custom_instructions=None,
     use_input_language=False,
 ):
-    """Build the user prompt for additive (ADD-only) extraction with linking.
+    """Build the user prompt for additive (ADD-only) extraction.
 
-    Pairs with ADDITIVE_EXTRACTION_PROMPT system prompt.
-    The LLM will produce only ADD operations, with optional linked_memory_ids.
+    Pairs with the ADDITIVE_EXTRACTION_PROMPT system prompt. The LLM produces
+    only ADD operations; existing memories are never updated or deleted here.
     """
     current_date, observation_date = _resolve_dates(current_date, timestamp)
 
     sections = []
-    sections.append(f"## Summary\n{_format_summary(summary)}")
     sections.append(f"## Last k Messages\n{_format_conversation_history(last_k_messages)}")
-    sections.append(f"## Recently Extracted Memories\n{_serialize_memories(recently_extracted_memories)}")
     sections.append(f"## Existing Memories\n{_serialize_memories(existing_memories)}")
     sections.append(f"## New Messages\n{_format_new_messages(new_messages)}")
     sections.append(f"## Observation Date\n{observation_date}")
