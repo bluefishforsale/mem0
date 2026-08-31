@@ -550,9 +550,14 @@ _PROJECT_UPDATE_UNSUPPORTED_ERROR = "Project updates are not supported by the OS
 # so it has something to promote; set too high it just costs reranker latency.
 RERANK_CANDIDATE_MULTIPLIER = 3
 
-# Cosine similarity above which a freshly extracted memory is treated as a
-# restatement of one already stored. Matches the entity store's semantic-match
-# bar so the codebase has one notion of "same thing, said differently".
+# Cosine similarity above which two things are treated as the same thing said
+# differently: a freshly extracted memory as a restatement of one already
+# stored, and an extracted entity as one already in the entity store.
+#
+# NOTE: both really do read this name now. Four entity-match sites used to
+# hardcode 0.95, so changing this moved the memory bar and silently left the
+# entity bar where it was. If the two ever need to diverge, split the constant
+# rather than reintroducing a literal.
 DEDUP_SIMILARITY_THRESHOLD = 0.95
 
 
@@ -716,7 +721,7 @@ class Memory(MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= 0.95 else None
+            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
             match = exact_match or semantic_match
             if match:
                 # Update existing entity's linked_memory_ids
@@ -1319,7 +1324,7 @@ class Memory(MemoryBase):
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= 0.95 else None
+                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
                         match = exact_match or semantic_match
                         if match:
                             # Update existing entity
@@ -2502,7 +2507,7 @@ class AsyncMemory(MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= 0.95 else None
+            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
             match = exact_match or semantic_match
             if match:
                 payload = match.payload or {}
@@ -3076,7 +3081,7 @@ class AsyncMemory(MemoryBase):
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= 0.95 else None
+                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
                         match = exact_match or semantic_match
                         if match:
                             payload = match.payload or {}
