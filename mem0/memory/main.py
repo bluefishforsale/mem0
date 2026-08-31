@@ -516,6 +516,46 @@ def _payload_is_expired(payload: Optional[Dict[str, Any]]) -> bool:
         return False
 
 
+# Payload keys lifted to the top level of a result instead of being buried in
+# metadata, because callers filter and display on them.
+PROMOTED_PAYLOAD_KEYS = (
+    "user_id",
+    "agent_id",
+    "run_id",
+    "actor_id",
+    "role",
+    "attributed_to",
+    "expiration_date",
+)
+
+# Everything MemoryItem already carries, plus the promoted keys. Anything left
+# over is caller metadata. text_lemmatized is here because it is a retrieval
+# implementation detail, not something a caller stored.
+CORE_AND_PROMOTED_KEYS = frozenset(
+    {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *PROMOTED_PAYLOAD_KEYS}
+)
+
+
+def _apply_payload_fields(item: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Lift the scoped payload keys onto `item` and fold the rest into metadata.
+
+    NOTE: merges into existing metadata rather than replacing it. get() and
+    get_all() used to overwrite, which was only equivalent because MemoryItem
+    defaults metadata to None; search() already merged. Merging is correct for
+    all three and does not depend on that default.
+    """
+    for key in PROMOTED_PAYLOAD_KEYS:
+        if key in payload:
+            item[key] = payload[key]
+
+    extra = {k: v for k, v in payload.items() if k not in CORE_AND_PROMOTED_KEYS}
+    if extra:
+        if not item.get("metadata"):
+            item["metadata"] = {}
+        item["metadata"].update(extra)
+    return item
+
+
 def _keyword_only_candidates(keyword_results, seen_ids, bm25_scores, show_expired, show_superseded=False):
     """Candidates that BM25 found but semantic search ranked outside its pool.
 
@@ -1523,18 +1563,6 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             display_first_run_notice(self, "sync", "get")
             return None
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         result_item = MemoryItem(
             id=memory.id,
             memory=memory.payload.get("data", ""),
@@ -1543,13 +1571,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             updated_at=memory.payload.get("updated_at"),
         ).model_dump()
 
-        for key in promoted_payload_keys:
-            if key in memory.payload:
-                result_item[key] = memory.payload[key]
-
-        additional_metadata = {k: v for k, v in memory.payload.items() if k not in core_and_promoted_keys}
-        if additional_metadata:
-            result_item["metadata"] = additional_metadata
+        _apply_payload_fields(result_item, memory.payload)
 
         display_first_run_notice(self, "sync", "get")
         return result_item
@@ -1646,17 +1668,6 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         else:
             actual_memories = memories_result
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         formatted_memories = []
         for mem in actual_memories:
             if not show_expired and _payload_is_expired(mem.payload):
@@ -1671,13 +1682,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                 updated_at=mem.payload.get("updated_at"),
             ).model_dump(exclude={"score"})
 
-            for key in promoted_payload_keys:
-                if key in mem.payload:
-                    memory_item_dict[key] = mem.payload[key]
-
-            additional_metadata = {k: v for k, v in mem.payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                memory_item_dict["metadata"] = additional_metadata
+            _apply_payload_fields(memory_item_dict, mem.payload)
 
             formatted_memories.append(memory_item_dict)
             if output_limit is not None and len(formatted_memories) >= output_limit:
@@ -1922,17 +1927,6 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         )
 
         # Step 9: Format results
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         original_memories = []
         for scored in scored_results:
             payload = scored.get("payload") or {}
@@ -1949,15 +1943,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                 score=scored["score"],
             ).model_dump()
 
-            for key in promoted_payload_keys:
-                if key in payload:
-                    memory_item_dict[key] = payload[key]
-
-            additional_metadata = {k: v for k, v in payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                if not memory_item_dict.get("metadata"):
-                    memory_item_dict["metadata"] = {}
-                memory_item_dict["metadata"].update(additional_metadata)
+            _apply_payload_fields(memory_item_dict, payload)
             # The number `threshold` gates, always. See scoring.score_and_rank.
             memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:
@@ -3132,18 +3118,6 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             await display_first_run_notice_async(self, "async", "get")
             return None
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         result_item = MemoryItem(
             id=memory.id,
             memory=memory.payload.get("data", ""),
@@ -3152,13 +3126,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             updated_at=memory.payload.get("updated_at"),
         ).model_dump()
 
-        for key in promoted_payload_keys:
-            if key in memory.payload:
-                result_item[key] = memory.payload[key]
-
-        additional_metadata = {k: v for k, v in memory.payload.items() if k not in core_and_promoted_keys}
-        if additional_metadata:
-            result_item["metadata"] = additional_metadata
+        _apply_payload_fields(result_item, memory.payload)
 
         await display_first_run_notice_async(self, "async", "get")
         return result_item
@@ -3257,17 +3225,6 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         else:
             actual_memories = memories_result
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         formatted_memories = []
         for mem in actual_memories:
             if not show_expired and _payload_is_expired(mem.payload):
@@ -3282,13 +3239,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                 updated_at=mem.payload.get("updated_at"),
             ).model_dump(exclude={"score"})
 
-            for key in promoted_payload_keys:
-                if key in mem.payload:
-                    memory_item_dict[key] = mem.payload[key]
-
-            additional_metadata = {k: v for k, v in mem.payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                memory_item_dict["metadata"] = additional_metadata
+            _apply_payload_fields(memory_item_dict, mem.payload)
 
             formatted_memories.append(memory_item_dict)
             if output_limit is not None and len(formatted_memories) >= output_limit:
@@ -3539,17 +3490,6 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         )
 
         # Step 9: Format results
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         original_memories = []
         for scored in scored_results:
             payload = scored.get("payload") or {}
@@ -3565,15 +3505,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                 score=scored["score"],
             ).model_dump()
 
-            for key in promoted_payload_keys:
-                if key in payload:
-                    memory_item_dict[key] = payload[key]
-
-            additional_metadata = {k: v for k, v in payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                if not memory_item_dict.get("metadata"):
-                    memory_item_dict["metadata"] = {}
-                memory_item_dict["metadata"].update(additional_metadata)
+            _apply_payload_fields(memory_item_dict, payload)
             # The number `threshold` gates, always. See scoring.score_and_rank.
             memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:

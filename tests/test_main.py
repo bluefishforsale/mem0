@@ -303,6 +303,46 @@ def test_delete_all(memory_instance):
     assert result["message"] == "Memories deleted successfully!"
 
 
+def test_payload_promotion_lifts_scoped_keys_and_folds_the_rest_into_metadata():
+    """The promoted-key list, the core-key set and this promotion loop were
+    written out six times: get, get_all and search, each in both classes.
+    Six copies of one rule means a new scoped key gets added to some of them.
+    """
+    from mem0.memory.main import _apply_payload_fields
+
+    item = {"id": "m1", "memory": "text", "metadata": None}
+    payload = {
+        "data": "text",
+        "hash": "h",
+        "created_at": "t0",
+        "text_lemmatized": "text",
+        "user_id": "u1",
+        "actor_id": "a1",
+        "custom_key": "kept",
+    }
+
+    result = _apply_payload_fields(item, payload)
+
+    assert result["user_id"] == "u1"
+    assert result["actor_id"] == "a1"
+    # Core fields belong to MemoryItem and must not be duplicated into metadata.
+    assert result["metadata"] == {"custom_key": "kept"}
+
+
+def test_payload_promotion_merges_into_existing_metadata():
+    """search() merged into whatever metadata was already there while get()
+    overwrote it. Identical in practice only because MemoryItem defaults
+    metadata to None; the shared helper must not depend on that accident.
+    """
+    from mem0.memory.main import _apply_payload_fields
+
+    item = {"id": "m1", "metadata": {"already": "here"}}
+
+    result = _apply_payload_fields(item, {"data": "x", "custom_key": "kept"})
+
+    assert result["metadata"] == {"already": "here", "custom_key": "kept"}
+
+
 @pytest.mark.parametrize(
     "name",
     [
