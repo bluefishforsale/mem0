@@ -11,6 +11,9 @@ def make_sync_memory():
     memory = Memory.__new__(Memory)
     memory.vector_store = MagicMock()
     memory._delete_memory = MagicMock()
+    # delete_all clears the entity store once at the end, as the async twin
+    # already did, so the stub needs the attribute __init__ would have set.
+    memory._entity_store = None
     return memory
 
 

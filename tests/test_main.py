@@ -303,6 +303,33 @@ def test_delete_all(memory_instance):
     assert result["message"] == "Memories deleted successfully!"
 
 
+def test_delete_all_clears_the_entity_store_once_not_once_per_memory(memory_instance):
+    """Sync delete_all cleaned the entity store inside every _delete_memory, and
+    each of those does entity_store.list(top_k=10000). Deleting N memories meant
+    N full scans of the entity collection. AsyncMemory.delete_all already avoids
+    this: it passes skip_entity_cleanup and does one _bulk_clear_entity_store at
+    the end. The FastAPI server uses the sync path, so it pays the N scans.
+    """
+    memories = [Mock(id=str(i)) for i in range(5)]
+    memory_instance.vector_store.list = Mock(side_effect=[(memories, None), ([], None)])
+    memory_instance.vector_store.get = Mock(
+        return_value=Mock(payload={"data": "x", "user_id": "test_user"})
+    )
+
+    entity_store = Mock()
+    entity_store.list.return_value = ([], None)
+    # The guard in _remove_memory_from_entity_store is `_entity_store is None`, so
+    # this is what a long-running process looks like after its first add or search.
+    memory_instance._entity_store = entity_store
+
+    memory_instance.delete_all(user_id="test_user")
+
+    assert entity_store.list.call_count == 1, (
+        f"scanned the entity store {entity_store.list.call_count} times "
+        f"for {len(memories)} deleted memories"
+    )
+
+
 def test_delete_all_paginates_beyond_vector_store_page_size(memory_instance):
     first_batch = [Mock(id=str(index)) for index in range(1000)]
     second_batch = [Mock(id="1000")]
