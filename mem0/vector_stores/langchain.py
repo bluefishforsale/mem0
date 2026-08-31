@@ -111,6 +111,15 @@ class Langchain(VectorStoreBase):
 
         # Try methods that return (Document, float) pairs — not in the base contract
         # but available on several concrete implementations.
+        #
+        # NOTE: the float below is passed straight through as `score`, and for
+        # several LangChain backends it is a *distance*, where lower is better.
+        # That inverts every threshold and ranking downstream. It is deliberately
+        # not "fixed" here: LangChain does not say which convention a given
+        # backend uses, so any conversion would be right for some wrappers and
+        # wrong for others. Knowing which would mean asking the wrapped store,
+        # which this adapter cannot do. Treat scores from the langchain adapter
+        # as untrusted until that is resolved.
         for method_name in _SCORED_BY_VECTOR_METHODS:
             method = getattr(self.client, method_name, None)
             if method is None:
