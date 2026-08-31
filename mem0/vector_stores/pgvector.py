@@ -382,18 +382,33 @@ class PGVector(VectorStoreBase):
         filter_conditions, filter_params = _build_filter_conditions(filters)
         filter_clause = sql.SQL("AND " + " AND ".join(filter_conditions)) if filter_conditions else sql.SQL("")
 
+        # NOTE: `| `, not plainto_tsquery's `&`. plainto_tsquery ANDs its terms,
+        # which is right for filtering and wrong for ranking: a memory had to
+        # contain every word of the query to be a candidate at all. Real queries
+        # are long, so this returned nothing and the BM25 arm contributed zero to
+        # every search. Against a 2821-row store, one term matched 66 rows and
+        # seven matched none.
+        #
+        # Rewriting plainto_tsquery's output rather than building a tsquery from
+        # the raw string on purpose: plainto_tsquery still does all the parsing,
+        # normalising and escaping, so nothing user-supplied is interpreted as
+        # query syntax. It only ever emits `&` between lexemes, so the swap is
+        # total. ts_rank_cd then does the ranking, which is the job.
         try:
             with self._get_cursor() as cur:
                 cur.execute(
                     sql.SQL("""
-                    SELECT id, ts_rank_cd(to_tsvector('simple', payload->>'text_lemmatized'), plainto_tsquery('simple', %s)) AS score, payload
-                    FROM {}
-                    WHERE to_tsvector('simple', payload->>'text_lemmatized') @@ plainto_tsquery('simple', %s)
+                    WITH q AS (
+                        SELECT replace(plainto_tsquery('simple', %s)::text, ' & ', ' | ')::tsquery AS tq
+                    )
+                    SELECT id, ts_rank_cd(to_tsvector('simple', payload->>'text_lemmatized'), q.tq) AS score, payload
+                    FROM {}, q
+                    WHERE to_tsvector('simple', payload->>'text_lemmatized') @@ q.tq
                     {}
                     ORDER BY score DESC
                     LIMIT %s
                     """).format(self._col(), filter_clause),
-                    (query, query, *filter_params, top_k),
+                    (query, *filter_params, top_k),
                 )
 
                 results = cur.fetchall()
