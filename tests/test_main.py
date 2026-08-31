@@ -303,6 +303,100 @@ def test_delete_all(memory_instance):
     assert result["message"] == "Memories deleted successfully!"
 
 
+def test_payload_promotion_lifts_scoped_keys_and_folds_the_rest_into_metadata():
+    """The promoted-key list, the core-key set and this promotion loop were
+    written out six times: get, get_all and search, each in both classes.
+    Six copies of one rule means a new scoped key gets added to some of them.
+    """
+    from mem0.memory.main import _apply_payload_fields
+
+    item = {"id": "m1", "memory": "text", "metadata": None}
+    payload = {
+        "data": "text",
+        "hash": "h",
+        "created_at": "t0",
+        "text_lemmatized": "text",
+        "user_id": "u1",
+        "actor_id": "a1",
+        "custom_key": "kept",
+    }
+
+    result = _apply_payload_fields(item, payload)
+
+    assert result["user_id"] == "u1"
+    assert result["actor_id"] == "a1"
+    # Core fields belong to MemoryItem and must not be duplicated into metadata.
+    assert result["metadata"] == {"custom_key": "kept"}
+
+
+def test_payload_promotion_merges_into_existing_metadata():
+    """search() merged into whatever metadata was already there while get()
+    overwrote it. Identical in practice only because MemoryItem defaults
+    metadata to None; the shared helper must not depend on that accident.
+    """
+    from mem0.memory.main import _apply_payload_fields
+
+    item = {"id": "m1", "metadata": {"already": "here"}}
+
+    result = _apply_payload_fields(item, {"data": "x", "custom_key": "kept"})
+
+    assert result["metadata"] == {"already": "here", "custom_key": "kept"}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "_normalize_entity_text",
+        "_existing_entities_by_text",
+        "_should_use_agent_memory_extraction",
+        "_process_metadata_filters",
+        "_has_advanced_operators",
+    ],
+)
+def test_shared_helpers_are_one_implementation_not_two_copies(name):
+    """These five carry no awaits and were byte-identical in both classes, so
+    the duplication bought nothing and cost the usual thing: two places to fix
+    a bug and no signal when only one gets fixed. `delete_all` already drifted
+    that way, doing an entity-store scan per deleted memory on the sync side
+    long after the async side stopped.
+
+    Identity, not equality: two copies of the same source would compare equal
+    by behaviour while still being two copies.
+    """
+    from mem0.memory.main import AsyncMemory, Memory
+
+    assert getattr(Memory, name) is getattr(AsyncMemory, name), (
+        f"{name} exists separately on Memory and AsyncMemory"
+    )
+
+
+def test_delete_all_clears_the_entity_store_once_not_once_per_memory(memory_instance):
+    """Sync delete_all cleaned the entity store inside every _delete_memory, and
+    each of those does entity_store.list(top_k=10000). Deleting N memories meant
+    N full scans of the entity collection. AsyncMemory.delete_all already avoids
+    this: it passes skip_entity_cleanup and does one _bulk_clear_entity_store at
+    the end. The FastAPI server uses the sync path, so it pays the N scans.
+    """
+    memories = [Mock(id=str(i)) for i in range(5)]
+    memory_instance.vector_store.list = Mock(side_effect=[(memories, None), ([], None)])
+    memory_instance.vector_store.get = Mock(
+        return_value=Mock(payload={"data": "x", "user_id": "test_user"})
+    )
+
+    entity_store = Mock()
+    entity_store.list.return_value = ([], None)
+    # The guard in _remove_memory_from_entity_store is `_entity_store is None`, so
+    # this is what a long-running process looks like after its first add or search.
+    memory_instance._entity_store = entity_store
+
+    memory_instance.delete_all(user_id="test_user")
+
+    assert entity_store.list.call_count == 1, (
+        f"scanned the entity store {entity_store.list.call_count} times "
+        f"for {len(memories)} deleted memories"
+    )
+
+
 def test_delete_all_paginates_beyond_vector_store_page_size(memory_instance):
     first_batch = [Mock(id=str(index)) for index in range(1000)]
     second_batch = [Mock(id="1000")]

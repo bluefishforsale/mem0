@@ -516,6 +516,46 @@ def _payload_is_expired(payload: Optional[Dict[str, Any]]) -> bool:
         return False
 
 
+# Payload keys lifted to the top level of a result instead of being buried in
+# metadata, because callers filter and display on them.
+PROMOTED_PAYLOAD_KEYS = (
+    "user_id",
+    "agent_id",
+    "run_id",
+    "actor_id",
+    "role",
+    "attributed_to",
+    "expiration_date",
+)
+
+# Everything MemoryItem already carries, plus the promoted keys. Anything left
+# over is caller metadata. text_lemmatized is here because it is a retrieval
+# implementation detail, not something a caller stored.
+CORE_AND_PROMOTED_KEYS = frozenset(
+    {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *PROMOTED_PAYLOAD_KEYS}
+)
+
+
+def _apply_payload_fields(item: Dict[str, Any], payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Lift the scoped payload keys onto `item` and fold the rest into metadata.
+
+    NOTE: merges into existing metadata rather than replacing it. get() and
+    get_all() used to overwrite, which was only equivalent because MemoryItem
+    defaults metadata to None; search() already merged. Merging is correct for
+    all three and does not depend on that default.
+    """
+    for key in PROMOTED_PAYLOAD_KEYS:
+        if key in payload:
+            item[key] = payload[key]
+
+    extra = {k: v for k, v in payload.items() if k not in CORE_AND_PROMOTED_KEYS}
+    if extra:
+        if not item.get("metadata"):
+            item["metadata"] = {}
+        item["metadata"].update(extra)
+    return item
+
+
 def _keyword_only_candidates(keyword_results, seen_ids, bm25_scores, show_expired, show_superseded=False):
     """Candidates that BM25 found but semantic search ranked outside its pool.
 
@@ -550,9 +590,14 @@ _PROJECT_UPDATE_UNSUPPORTED_ERROR = "Project updates are not supported by the OS
 # so it has something to promote; set too high it just costs reranker latency.
 RERANK_CANDIDATE_MULTIPLIER = 3
 
-# Cosine similarity above which a freshly extracted memory is treated as a
-# restatement of one already stored. Matches the entity store's semantic-match
-# bar so the codebase has one notion of "same thing, said differently".
+# Cosine similarity above which two things are treated as the same thing said
+# differently: a freshly extracted memory as a restatement of one already
+# stored, and an extracted entity as one already in the entity store.
+#
+# NOTE: both really do read this name now. Four entity-match sites used to
+# hardcode 0.95, so changing this moved the memory bar and silently left the
+# entity bar where it was. If the two ever need to diverge, split the constant
+# rather than reintroducing a literal.
 DEDUP_SIMILARITY_THRESHOLD = 0.95
 
 
@@ -582,7 +627,178 @@ class _AsyncOSSProject:
         raise ValueError(_PROJECT_UPDATE_UNSUPPORTED_ERROR)
 
 
-class Memory(MemoryBase):
+class _SharedMemoryLogic:
+    """Helpers that are genuinely one implementation, not a sync/async pair.
+
+    Everything here was byte-identical in both classes and carries no
+    ``await``, so the duplication bought nothing and cost the usual thing:
+    two places to fix a bug and no signal when only one gets fixed.
+    ``delete_all`` drifted exactly that way.
+
+    NOTE: this is not the whole duplication. The add and search pipelines
+    still exist twice, because unifying those needs either an unasync
+    codegen step or an event-loop bridge, which is a different decision.
+
+    NOTE: ``_existing_entities_by_text`` calls the entity store
+    synchronously, so on ``AsyncMemory`` it blocks the event loop. That is
+    pre-existing and is preserved here deliberately: fixing it would make
+    the two copies differ again, which is a separate change.
+    """
+
+    @staticmethod
+    def _normalize_entity_text(value: str) -> str:
+        return " ".join(value.strip().lower().split())
+
+
+    def _existing_entities_by_text(self, filters):
+        """Return existing entity rows keyed by normalized payload data."""
+        try:
+            listed = self.entity_store.list(filters=filters, top_k=10000)
+        except Exception as e:
+            logger.debug(f"Exact entity lookup failed, falling back to semantic dedup: {e}")
+            return {}
+
+        rows_by_text = {}
+        for row in _vector_store_list_rows(listed):
+            payload = getattr(row, "payload", None) or {}
+            text = payload.get("data")
+            if not isinstance(text, str):
+                continue
+            normalized = self._normalize_entity_text(text)
+            if normalized and normalized not in rows_by_text:
+                rows_by_text[normalized] = row
+        return rows_by_text
+
+
+    def _should_use_agent_memory_extraction(self, messages, metadata):
+        """Determine whether to use agent memory extraction based on the logic:
+        - If agent_id is present and messages contain assistant role -> True
+        - Otherwise -> False
+
+        Args:
+            messages: List of message dictionaries
+            metadata: Metadata containing user_id, agent_id, etc.
+
+        Returns:
+            bool: True if should use agent memory extraction, False for user memory extraction
+        """
+        # Check if agent_id is present in metadata
+        has_agent_id = metadata.get("agent_id") is not None
+
+        # Check if there are assistant role messages
+        has_assistant_messages = any(msg.get("role") == "assistant" for msg in messages)
+
+        # Use agent memory extraction if agent_id is present and there are assistant messages
+        return has_agent_id and has_assistant_messages
+
+
+    def _process_metadata_filters(self, metadata_filters: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process enhanced metadata filters and convert them to vector store compatible format.
+
+        Args:
+            metadata_filters: Enhanced metadata filters with operators
+
+        Returns:
+            Dict of processed filters compatible with vector store
+        """
+        processed_filters = {}
+
+        def process_condition(key: str, condition: Any) -> Dict[str, Any]:
+            if not isinstance(condition, dict):
+                # Simple equality: {"key": "value"}
+                if condition == "*":
+                    # Wildcard: match everything for this field (implementation depends on vector store)
+                    return {key: "*"}
+                return {key: condition}
+
+            result = {}
+            for operator, value in condition.items():
+                # Map platform operators to universal format that can be translated by each vector store
+                operator_map = {
+                    "eq": "eq", "ne": "ne", "gt": "gt", "gte": "gte",
+                    "lt": "lt", "lte": "lte", "in": "in", "nin": "nin",
+                    "contains": "contains", "icontains": "icontains"
+                }
+
+                if operator in operator_map:
+                    result.setdefault(key, {})[operator_map[operator]] = value
+                else:
+                    raise ValueError(f"Unsupported metadata filter operator: {operator}")
+            return result
+
+        def merge_filters(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+            """Merge source into target, deep-merging nested operator dicts for the same key."""
+            for key, value in source.items():
+                if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+                    target[key].update(value)
+                else:
+                    target[key] = value
+
+        for key, value in metadata_filters.items():
+            if key == "AND":
+                # Logical AND: combine multiple conditions
+                if not isinstance(value, list):
+                    raise ValueError("AND operator requires a list of conditions")
+                for condition in value:
+                    for sub_key, sub_value in condition.items():
+                        merge_filters(processed_filters, process_condition(sub_key, sub_value))
+            elif key == "OR":
+                # Logical OR: Pass through to vector store for implementation-specific handling
+                if not isinstance(value, list) or not value:
+                    raise ValueError("OR operator requires a non-empty list of conditions")
+                # Store OR conditions in a way that vector stores can interpret
+                processed_filters["$or"] = []
+                for condition in value:
+                    or_condition = {}
+                    for sub_key, sub_value in condition.items():
+                        merge_filters(or_condition, process_condition(sub_key, sub_value))
+                    processed_filters["$or"].append(or_condition)
+            elif key == "NOT":
+                # Logical NOT: Pass through to vector store for implementation-specific handling
+                if not isinstance(value, list) or not value:
+                    raise ValueError("NOT operator requires a non-empty list of conditions")
+                processed_filters["$not"] = []
+                for condition in value:
+                    not_condition = {}
+                    for sub_key, sub_value in condition.items():
+                        merge_filters(not_condition, process_condition(sub_key, sub_value))
+                    processed_filters["$not"].append(not_condition)
+            else:
+                merge_filters(processed_filters, process_condition(key, value))
+
+        return processed_filters
+
+
+    def _has_advanced_operators(self, filters: Dict[str, Any]) -> bool:
+        """
+        Check if filters contain advanced operators that need special processing.
+
+        Args:
+            filters: Dictionary of filters to check
+
+        Returns:
+            bool: True if advanced operators are detected
+        """
+        if not isinstance(filters, dict):
+            return False
+
+        for key, value in filters.items():
+            # Check for platform-style logical operators
+            if key in ["AND", "OR", "NOT"]:
+                return True
+            # Check for comparison operators (without $ prefix for universal compatibility)
+            if isinstance(value, dict):
+                for op in value.keys():
+                    if op in ["eq", "ne", "gt", "gte", "lt", "lte", "in", "nin", "contains", "icontains"]:
+                        return True
+            # Check for wildcard values
+            if value == "*":
+                return True
+        return False
+
+
+class Memory(_SharedMemoryLogic, MemoryBase):
     def __init__(self, config: MemoryConfig = MemoryConfig()):
         self.config = config
 
@@ -677,29 +893,6 @@ class Memory(MemoryBase):
             )
         return self._entity_store
 
-    @staticmethod
-    def _normalize_entity_text(value: str) -> str:
-        return " ".join(value.strip().lower().split())
-
-    def _existing_entities_by_text(self, filters):
-        """Return existing entity rows keyed by normalized payload data."""
-        try:
-            listed = self.entity_store.list(filters=filters, top_k=10000)
-        except Exception as e:
-            logger.debug(f"Exact entity lookup failed, falling back to semantic dedup: {e}")
-            return {}
-
-        rows_by_text = {}
-        for row in _vector_store_list_rows(listed):
-            payload = getattr(row, "payload", None) or {}
-            text = payload.get("data")
-            if not isinstance(text, str):
-                continue
-            normalized = self._normalize_entity_text(text)
-            if normalized and normalized not in rows_by_text:
-                rows_by_text[normalized] = row
-        return rows_by_text
-
     def _upsert_entity(self, entity_text, entity_type, memory_id, filters):
         """Upsert an entity into the entity store, linking it to a memory."""
         try:
@@ -716,7 +909,7 @@ class Memory(MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= 0.95 else None
+            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
             match = exact_match or semantic_match
             if match:
                 # Update existing entity's linked_memory_ids
@@ -746,6 +939,27 @@ class Memory(MemoryBase):
                 )
         except Exception as e:
             logger.warning(f"Entity upsert failed for '{entity_text}': {e}")
+
+    def _bulk_clear_entity_store(self, filters):
+        """Delete all entity records matching the given scope filters.
+
+        Used by delete_all, which would otherwise clean the entity store inside
+        every _delete_memory: each of those lists the whole entity collection,
+        so deleting N memories meant N full scans.
+        """
+        if self._entity_store is None:
+            return
+        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
+        try:
+            listed = self.entity_store.list(filters=search_filters, top_k=10000)
+            rows = listed[0] if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list) else listed
+            for row in rows or []:
+                try:
+                    self.entity_store.delete(vector_id=row.id)
+                except Exception as e:
+                    logger.debug(f"Bulk entity delete failed for id={row.id}: {e}")
+        except Exception as e:
+            logger.warning(f"Bulk entity store cleanup failed: {e}")
 
     def _remove_memory_from_entity_store(self, memory_id, filters):
         """Strip `memory_id` from every entity record scoped to `filters`.
@@ -865,27 +1079,6 @@ class Memory(MemoryBase):
             logger.error(f"Configuration validation error: {e}")
             raise
         return cls(config)
-
-    def _should_use_agent_memory_extraction(self, messages, metadata):
-        """Determine whether to use agent memory extraction based on the logic:
-        - If agent_id is present and messages contain assistant role -> True
-        - Otherwise -> False
-
-        Args:
-            messages: List of message dictionaries
-            metadata: Metadata containing user_id, agent_id, etc.
-
-        Returns:
-            bool: True if should use agent memory extraction, False for user memory extraction
-        """
-        # Check if agent_id is present in metadata
-        has_agent_id = metadata.get("agent_id") is not None
-
-        # Check if there are assistant role messages
-        has_assistant_messages = any(msg.get("role") == "assistant" for msg in messages)
-
-        # Use agent memory extraction if agent_id is present and there are assistant messages
-        return has_agent_id and has_assistant_messages
 
     def add(
         self,
@@ -1298,7 +1491,7 @@ class Memory(MemoryBase):
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= 0.95 else None
+                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
                         match = exact_match or semantic_match
                         if match:
                             # Update existing entity
@@ -1370,18 +1563,6 @@ class Memory(MemoryBase):
             display_first_run_notice(self, "sync", "get")
             return None
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         result_item = MemoryItem(
             id=memory.id,
             memory=memory.payload.get("data", ""),
@@ -1390,13 +1571,7 @@ class Memory(MemoryBase):
             updated_at=memory.payload.get("updated_at"),
         ).model_dump()
 
-        for key in promoted_payload_keys:
-            if key in memory.payload:
-                result_item[key] = memory.payload[key]
-
-        additional_metadata = {k: v for k, v in memory.payload.items() if k not in core_and_promoted_keys}
-        if additional_metadata:
-            result_item["metadata"] = additional_metadata
+        _apply_payload_fields(result_item, memory.payload)
 
         display_first_run_notice(self, "sync", "get")
         return result_item
@@ -1493,17 +1668,6 @@ class Memory(MemoryBase):
         else:
             actual_memories = memories_result
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         formatted_memories = []
         for mem in actual_memories:
             if not show_expired and _payload_is_expired(mem.payload):
@@ -1518,13 +1682,7 @@ class Memory(MemoryBase):
                 updated_at=mem.payload.get("updated_at"),
             ).model_dump(exclude={"score"})
 
-            for key in promoted_payload_keys:
-                if key in mem.payload:
-                    memory_item_dict[key] = mem.payload[key]
-
-            additional_metadata = {k: v for k, v in mem.payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                memory_item_dict["metadata"] = additional_metadata
+            _apply_payload_fields(memory_item_dict, mem.payload)
 
             formatted_memories.append(memory_item_dict)
             if output_limit is not None and len(formatted_memories) >= output_limit:
@@ -1695,110 +1853,6 @@ class Memory(MemoryBase):
             display_first_run_notice(self, "sync", "search")
         return {"results": original_memories}
 
-    def _process_metadata_filters(self, metadata_filters: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process enhanced metadata filters and convert them to vector store compatible format.
-
-        Args:
-            metadata_filters: Enhanced metadata filters with operators
-
-        Returns:
-            Dict of processed filters compatible with vector store
-        """
-        processed_filters = {}
-
-        def process_condition(key: str, condition: Any) -> Dict[str, Any]:
-            if not isinstance(condition, dict):
-                # Simple equality: {"key": "value"}
-                if condition == "*":
-                    # Wildcard: match everything for this field (implementation depends on vector store)
-                    return {key: "*"}
-                return {key: condition}
-
-            result = {}
-            for operator, value in condition.items():
-                # Map platform operators to universal format that can be translated by each vector store
-                operator_map = {
-                    "eq": "eq", "ne": "ne", "gt": "gt", "gte": "gte",
-                    "lt": "lt", "lte": "lte", "in": "in", "nin": "nin",
-                    "contains": "contains", "icontains": "icontains"
-                }
-
-                if operator in operator_map:
-                    result.setdefault(key, {})[operator_map[operator]] = value
-                else:
-                    raise ValueError(f"Unsupported metadata filter operator: {operator}")
-            return result
-
-        def merge_filters(target: Dict[str, Any], source: Dict[str, Any]) -> None:
-            """Merge source into target, deep-merging nested operator dicts for the same key."""
-            for key, value in source.items():
-                if key in target and isinstance(target[key], dict) and isinstance(value, dict):
-                    target[key].update(value)
-                else:
-                    target[key] = value
-
-        for key, value in metadata_filters.items():
-            if key == "AND":
-                # Logical AND: combine multiple conditions
-                if not isinstance(value, list):
-                    raise ValueError("AND operator requires a list of conditions")
-                for condition in value:
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(processed_filters, process_condition(sub_key, sub_value))
-            elif key == "OR":
-                # Logical OR: Pass through to vector store for implementation-specific handling
-                if not isinstance(value, list) or not value:
-                    raise ValueError("OR operator requires a non-empty list of conditions")
-                # Store OR conditions in a way that vector stores can interpret
-                processed_filters["$or"] = []
-                for condition in value:
-                    or_condition = {}
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(or_condition, process_condition(sub_key, sub_value))
-                    processed_filters["$or"].append(or_condition)
-            elif key == "NOT":
-                # Logical NOT: Pass through to vector store for implementation-specific handling
-                if not isinstance(value, list) or not value:
-                    raise ValueError("NOT operator requires a non-empty list of conditions")
-                processed_filters["$not"] = []
-                for condition in value:
-                    not_condition = {}
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(not_condition, process_condition(sub_key, sub_value))
-                    processed_filters["$not"].append(not_condition)
-            else:
-                merge_filters(processed_filters, process_condition(key, value))
-
-        return processed_filters
-
-    def _has_advanced_operators(self, filters: Dict[str, Any]) -> bool:
-        """
-        Check if filters contain advanced operators that need special processing.
-        
-        Args:
-            filters: Dictionary of filters to check
-            
-        Returns:
-            bool: True if advanced operators are detected
-        """
-        if not isinstance(filters, dict):
-            return False
-            
-        for key, value in filters.items():
-            # Check for platform-style logical operators
-            if key in ["AND", "OR", "NOT"]:
-                return True
-            # Check for comparison operators (without $ prefix for universal compatibility)
-            if isinstance(value, dict):
-                for op in value.keys():
-                    if op in ["eq", "ne", "gt", "gte", "lt", "lte", "in", "nin", "contains", "icontains"]:
-                        return True
-            # Check for wildcard values
-            if value == "*":
-                return True
-        return False
-
     def _search_vector_store(
         self, query, filters, limit, threshold=0.1, explain=False, show_expired=False, show_superseded=False
     ):
@@ -1873,17 +1927,6 @@ class Memory(MemoryBase):
         )
 
         # Step 9: Format results
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         original_memories = []
         for scored in scored_results:
             payload = scored.get("payload") or {}
@@ -1900,15 +1943,7 @@ class Memory(MemoryBase):
                 score=scored["score"],
             ).model_dump()
 
-            for key in promoted_payload_keys:
-                if key in payload:
-                    memory_item_dict[key] = payload[key]
-
-            additional_metadata = {k: v for k, v in payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                if not memory_item_dict.get("metadata"):
-                    memory_item_dict["metadata"] = {}
-                memory_item_dict["metadata"].update(additional_metadata)
+            _apply_payload_fields(memory_item_dict, payload)
             # The number `threshold` gates, always. See scoring.score_and_rank.
             memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:
@@ -2119,8 +2154,11 @@ class Memory(MemoryBase):
                 break
             seen_batches.add(batch_ids)
             for memory in memories:
-                self._delete_memory(memory.id)
+                self._delete_memory(memory.id, skip_entity_cleanup=True)
             deleted_count += len(memories)
+
+        if self._entity_store is not None:
+            self._bulk_clear_entity_store(filters)
 
         logger.info(f"Deleted {deleted_count} memories")
 
@@ -2285,7 +2323,7 @@ class Memory(MemoryBase):
 
         return memory_id
 
-    def _delete_memory(self, memory_id, existing_memory=None):
+    def _delete_memory(self, memory_id, existing_memory=None, skip_entity_cleanup=False):
         logger.info(f"Deleting memory with {memory_id=}")
         if existing_memory is None:
             existing_memory = self.vector_store.get(vector_id=memory_id)
@@ -2311,7 +2349,12 @@ class Memory(MemoryBase):
 
         # Entity-store cleanup: strip this memory's id from any entity records
         # that linked to it. Non-fatal — the helper swallows errors.
-        self._remove_memory_from_entity_store(memory_id, session_filters)
+        #
+        # skip_entity_cleanup is for delete_all, which clears the whole scope in
+        # one pass afterwards. Doing it per memory there means one full scan of
+        # the entity collection per deleted row.
+        if not skip_entity_cleanup:
+            self._remove_memory_from_entity_store(memory_id, session_filters)
 
         return memory_id
 
@@ -2357,7 +2400,7 @@ class Memory(MemoryBase):
         raise NotImplementedError("Chat function not implemented yet.")
 
 
-class AsyncMemory(MemoryBase):
+class AsyncMemory(_SharedMemoryLogic, MemoryBase):
     def __init__(self, config: MemoryConfig = MemoryConfig()):
         self.config = config
 
@@ -2431,29 +2474,6 @@ class AsyncMemory(MemoryBase):
             )
         return self._entity_store
 
-    @staticmethod
-    def _normalize_entity_text(value: str) -> str:
-        return " ".join(value.strip().lower().split())
-
-    def _existing_entities_by_text(self, filters):
-        """Return existing entity rows keyed by normalized payload data."""
-        try:
-            listed = self.entity_store.list(filters=filters, top_k=10000)
-        except Exception as e:
-            logger.debug(f"Exact entity lookup failed, falling back to semantic dedup: {e}")
-            return {}
-
-        rows_by_text = {}
-        for row in _vector_store_list_rows(listed):
-            payload = getattr(row, "payload", None) or {}
-            text = payload.get("data")
-            if not isinstance(text, str):
-                continue
-            normalized = self._normalize_entity_text(text)
-            if normalized and normalized not in rows_by_text:
-                rows_by_text[normalized] = row
-        return rows_by_text
-
     async def _upsert_entity_async(self, entity_text, entity_type, memory_id, filters):
         """Async variant of `_upsert_entity` — per-entity search-then-update-or-insert."""
         try:
@@ -2473,7 +2493,7 @@ class AsyncMemory(MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= 0.95 else None
+            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
             match = exact_match or semantic_match
             if match:
                 payload = match.payload or {}
@@ -2630,27 +2650,6 @@ class AsyncMemory(MemoryBase):
             logger.error(f"Configuration validation error: {e}")
             raise
         return cls(config)
-
-    def _should_use_agent_memory_extraction(self, messages, metadata):
-        """Determine whether to use agent memory extraction based on the logic:
-        - If agent_id is present and messages contain assistant role -> True
-        - Otherwise -> False
-
-        Args:
-            messages: List of message dictionaries
-            metadata: Metadata containing user_id, agent_id, etc.
-
-        Returns:
-            bool: True if should use agent memory extraction, False for user memory extraction
-        """
-        # Check if agent_id is present in metadata
-        has_agent_id = metadata.get("agent_id") is not None
-
-        # Check if there are assistant role messages
-        has_assistant_messages = any(msg.get("role") == "assistant" for msg in messages)
-
-        # Use agent memory extraction if agent_id is present and there are assistant messages
-        return has_agent_id and has_assistant_messages
 
     async def add(
         self,
@@ -3047,7 +3046,7 @@ class AsyncMemory(MemoryBase):
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= 0.95 else None
+                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
                         match = exact_match or semantic_match
                         if match:
                             payload = match.payload or {}
@@ -3119,18 +3118,6 @@ class AsyncMemory(MemoryBase):
             await display_first_run_notice_async(self, "async", "get")
             return None
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         result_item = MemoryItem(
             id=memory.id,
             memory=memory.payload.get("data", ""),
@@ -3139,13 +3126,7 @@ class AsyncMemory(MemoryBase):
             updated_at=memory.payload.get("updated_at"),
         ).model_dump()
 
-        for key in promoted_payload_keys:
-            if key in memory.payload:
-                result_item[key] = memory.payload[key]
-
-        additional_metadata = {k: v for k, v in memory.payload.items() if k not in core_and_promoted_keys}
-        if additional_metadata:
-            result_item["metadata"] = additional_metadata
+        _apply_payload_fields(result_item, memory.payload)
 
         await display_first_run_notice_async(self, "async", "get")
         return result_item
@@ -3244,17 +3225,6 @@ class AsyncMemory(MemoryBase):
         else:
             actual_memories = memories_result
 
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         formatted_memories = []
         for mem in actual_memories:
             if not show_expired and _payload_is_expired(mem.payload):
@@ -3269,13 +3239,7 @@ class AsyncMemory(MemoryBase):
                 updated_at=mem.payload.get("updated_at"),
             ).model_dump(exclude={"score"})
 
-            for key in promoted_payload_keys:
-                if key in mem.payload:
-                    memory_item_dict[key] = mem.payload[key]
-
-            additional_metadata = {k: v for k, v in mem.payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                memory_item_dict["metadata"] = additional_metadata
+            _apply_payload_fields(memory_item_dict, mem.payload)
 
             formatted_memories.append(memory_item_dict)
             if output_limit is not None and len(formatted_memories) >= output_limit:
@@ -3453,110 +3417,6 @@ class AsyncMemory(MemoryBase):
             await display_first_run_notice_async(self, "async", "search")
         return {"results": original_memories}
 
-    def _process_metadata_filters(self, metadata_filters: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process enhanced metadata filters and convert them to vector store compatible format.
-
-        Args:
-            metadata_filters: Enhanced metadata filters with operators
-
-        Returns:
-            Dict of processed filters compatible with vector store
-        """
-        processed_filters = {}
-
-        def process_condition(key: str, condition: Any) -> Dict[str, Any]:
-            if not isinstance(condition, dict):
-                # Simple equality: {"key": "value"}
-                if condition == "*":
-                    # Wildcard: match everything for this field (implementation depends on vector store)
-                    return {key: "*"}
-                return {key: condition}
-
-            result = {}
-            for operator, value in condition.items():
-                # Map platform operators to universal format that can be translated by each vector store
-                operator_map = {
-                    "eq": "eq", "ne": "ne", "gt": "gt", "gte": "gte",
-                    "lt": "lt", "lte": "lte", "in": "in", "nin": "nin",
-                    "contains": "contains", "icontains": "icontains"
-                }
-
-                if operator in operator_map:
-                    result.setdefault(key, {})[operator_map[operator]] = value
-                else:
-                    raise ValueError(f"Unsupported metadata filter operator: {operator}")
-            return result
-
-        def merge_filters(target: Dict[str, Any], source: Dict[str, Any]) -> None:
-            """Merge source into target, deep-merging nested operator dicts for the same key."""
-            for key, value in source.items():
-                if key in target and isinstance(target[key], dict) and isinstance(value, dict):
-                    target[key].update(value)
-                else:
-                    target[key] = value
-
-        for key, value in metadata_filters.items():
-            if key == "AND":
-                # Logical AND: combine multiple conditions
-                if not isinstance(value, list):
-                    raise ValueError("AND operator requires a list of conditions")
-                for condition in value:
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(processed_filters, process_condition(sub_key, sub_value))
-            elif key == "OR":
-                # Logical OR: Pass through to vector store for implementation-specific handling
-                if not isinstance(value, list) or not value:
-                    raise ValueError("OR operator requires a non-empty list of conditions")
-                # Store OR conditions in a way that vector stores can interpret
-                processed_filters["$or"] = []
-                for condition in value:
-                    or_condition = {}
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(or_condition, process_condition(sub_key, sub_value))
-                    processed_filters["$or"].append(or_condition)
-            elif key == "NOT":
-                # Logical NOT: Pass through to vector store for implementation-specific handling
-                if not isinstance(value, list) or not value:
-                    raise ValueError("NOT operator requires a non-empty list of conditions")
-                processed_filters["$not"] = []
-                for condition in value:
-                    not_condition = {}
-                    for sub_key, sub_value in condition.items():
-                        merge_filters(not_condition, process_condition(sub_key, sub_value))
-                    processed_filters["$not"].append(not_condition)
-            else:
-                merge_filters(processed_filters, process_condition(key, value))
-
-        return processed_filters
-
-    def _has_advanced_operators(self, filters: Dict[str, Any]) -> bool:
-        """
-        Check if filters contain advanced operators that need special processing.
-
-        Args:
-            filters: Dictionary of filters to check
-
-        Returns:
-            bool: True if advanced operators are detected
-        """
-        if not isinstance(filters, dict):
-            return False
-
-        for key, value in filters.items():
-            # Check for platform-style logical operators
-            if key in ["AND", "OR", "NOT"]:
-                return True
-            # Check for comparison operators (without $ prefix for universal compatibility)
-            if isinstance(value, dict):
-                for op in value.keys():
-                    if op in ["eq", "ne", "gt", "gte", "lt", "lte", "in", "nin", "contains", "icontains"]:
-                        return True
-            # Check for wildcard values
-            if value == "*":
-                return True
-        return False
-
     async def _search_vector_store(
         self, query, filters, limit, threshold=0.1, explain=False, show_expired=False, show_superseded=False
     ):
@@ -3630,17 +3490,6 @@ class AsyncMemory(MemoryBase):
         )
 
         # Step 9: Format results
-        promoted_payload_keys = [
-            "user_id",
-            "agent_id",
-            "run_id",
-            "actor_id",
-            "role",
-            "attributed_to",
-            "expiration_date",
-        ]
-        core_and_promoted_keys = {"data", "hash", "created_at", "updated_at", "id", "text_lemmatized", "attributed_to", *promoted_payload_keys}
-
         original_memories = []
         for scored in scored_results:
             payload = scored.get("payload") or {}
@@ -3656,15 +3505,7 @@ class AsyncMemory(MemoryBase):
                 score=scored["score"],
             ).model_dump()
 
-            for key in promoted_payload_keys:
-                if key in payload:
-                    memory_item_dict[key] = payload[key]
-
-            additional_metadata = {k: v for k, v in payload.items() if k not in core_and_promoted_keys}
-            if additional_metadata:
-                if not memory_item_dict.get("metadata"):
-                    memory_item_dict["metadata"] = {}
-                memory_item_dict["metadata"].update(additional_metadata)
+            _apply_payload_fields(memory_item_dict, payload)
             # The number `threshold` gates, always. See scoring.score_and_rank.
             memory_item_dict["semantic_score"] = scored.get("semantic_score")
             if explain and "score_details" in scored:
