@@ -37,6 +37,18 @@ class TestGetBm25Params:
         # Empty string -> 1 term -> short query params
         assert midpoint == 5.0
 
+    def test_a_ts_rank_cd_score_is_not_crushed_by_the_bm25_curve(self):
+        """The default curve assumes raw BM25, which runs 0-20+. Postgres
+        ts_rank_cd runs about 0-0.6: measured on a 2821-row store it sits at
+        0.1 median, 0.3 at p99, 0.6 at most. Fed to the BM25 curve that whole
+        range lands between 0.031 and 0.041, so the keyword arm contributed
+        roughly 0.01 of its 0.28 weight no matter how well the terms matched.
+        """
+        midpoint, steepness = get_bm25_params("shared agent memory", scale="ts_rank_cd")
+
+        assert normalize_bm25(0.1, midpoint, steepness) > 0.25, "a median match scores as noise"
+        assert normalize_bm25(0.3, midpoint, steepness) > 0.6, "a strong match does not stand out"
+
 
 class TestNormalizeBm25:
     def test_at_midpoint(self):

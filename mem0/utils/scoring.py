@@ -14,15 +14,37 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
-def get_bm25_params(query: str, *, lemmatized: Optional[str] = None) -> tuple:
-    """Get BM25 sigmoid parameters based on query length.
+# Postgres ts_rank_cd is not BM25 and does not share its range. Measured over a
+# 2821-row store: 0.1 median, 0.2 at p90, 0.3 at p99, 0.6 at most, and near
+# enough the same distribution at every query length -- so unlike raw BM25 this
+# scale needs no length adaptation, just a curve that fits it. Midpoint and
+# steepness solve a sigmoid through f(0.1)=0.3 and f(0.3)=0.7.
+TS_RANK_CD_PARAMS = (0.2, 8.5)
 
-    Longer queries tend to have higher raw BM25 scores, so we adjust
-    the sigmoid midpoint and steepness accordingly.
+
+def get_bm25_params(query: str, *, lemmatized: Optional[str] = None, scale: str = "bm25") -> tuple:
+    """Get keyword-score sigmoid parameters for a store's score scale.
+
+    Longer queries tend to have higher raw BM25 scores, so for the BM25 scale we
+    adjust the sigmoid midpoint and steepness accordingly.
+
+    Args:
+        query: The search query.
+        lemmatized: Pre-lemmatized query, if the caller already has one.
+        scale: The scale the store's keyword_search returns. ``bm25`` for a raw,
+            unbounded BM25 score; ``ts_rank_cd`` for Postgres full-text ranks.
 
     Returns:
         (midpoint, steepness) for sigmoid normalization.
     """
+    # NOTE: one curve per scale, not one curve for everything. Sixteen stores
+    # implement keyword_search on at least three different scales, and feeding
+    # them all through the BM25 curve pinned the small-valued ones to its floor:
+    # ts_rank_cd's entire 0-0.6 range mapped to 0.031-0.041, which is a keyword
+    # arm that cannot change a ranking no matter how well the terms match.
+    if scale == "ts_rank_cd":
+        return TS_RANK_CD_PARAMS
+
     if lemmatized is None:
         from mem0.utils.lemmatization import lemmatize_for_bm25
 
