@@ -303,6 +303,33 @@ def test_delete_all(memory_instance):
     assert result["message"] == "Memories deleted successfully!"
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "_normalize_entity_text",
+        "_existing_entities_by_text",
+        "_should_use_agent_memory_extraction",
+        "_process_metadata_filters",
+        "_has_advanced_operators",
+    ],
+)
+def test_shared_helpers_are_one_implementation_not_two_copies(name):
+    """These five carry no awaits and were byte-identical in both classes, so
+    the duplication bought nothing and cost the usual thing: two places to fix
+    a bug and no signal when only one gets fixed. `delete_all` already drifted
+    that way, doing an entity-store scan per deleted memory on the sync side
+    long after the async side stopped.
+
+    Identity, not equality: two copies of the same source would compare equal
+    by behaviour while still being two copies.
+    """
+    from mem0.memory.main import AsyncMemory, Memory
+
+    assert getattr(Memory, name) is getattr(AsyncMemory, name), (
+        f"{name} exists separately on Memory and AsyncMemory"
+    )
+
+
 def test_delete_all_clears_the_entity_store_once_not_once_per_memory(memory_instance):
     """Sync delete_all cleaned the entity store inside every _delete_memory, and
     each of those does entity_store.list(top_k=10000). Deleting N memories meant
