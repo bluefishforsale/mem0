@@ -1,0 +1,168 @@
+name: build-and-push
+
+# Ships server/Dockerfile to GHCR and asks homelab to deploy it.
+#
+# NOTE: the image is smoke-tested BEFORE it is pushed and before homelab is
+# told about it. `docker build` exits 0 on an image that cannot start, and the
+# homelab policy is halt-and-alert with no auto-rollback, so a bad push here
+# would recreate the working container with a crashlooping one and stop.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.gitignore'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/mem0-api-server
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    # Same image ocean runs, so the schema the smoke test migrates is the
+    # schema production migrates.
+    services:
+      postgres:
+        image: ankane/pgvector:v0.5.1
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Built and loaded locally, not pushed. Nothing reaches GHCR until the
+      # smoke test below has actually started the app.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          load: true
+          push: false
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # server/init-db.sh does this on a real deploy, but that runs from the
+      # postgres image's entrypoint hooks, which service containers don't mount.
+      - name: Create the auth database
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d postgres -c 'CREATE DATABASE mem0_app'
+
+      # Proves what the build gate in server/Dockerfile deliberately cannot:
+      # that main.py's module-scope initialize_state() succeeds, meaning the
+      # embedder builds, pgvector connects and the collection is created.
+      - name: Smoke test
+        run: |
+          docker run -d --name mem0-smoke --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=postgres \
+            -e APP_DB_NAME=mem0_app \
+            -e MEM0_EMBEDDING_DIMS=768 \
+            -e HISTORY_DB_PATH=/tmp/history.db \
+            -e JWT_SECRET=ci-smoke-test-secret-not-a-real-key \
+            -e AUTH_DISABLED=true \
+            -e MEM0_TELEMETRY=false \
+            -e OPENAI_API_KEY=sk-ci-smoke-test-not-a-real-key \
+            "${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}" \
+            sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+
+          # /docs is the same liveness signal ocean's healthcheck uses: there is
+          # no /health route in this app.
+          up=""
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://localhost:8000/docs; then
+              echo "app is up after ${i}s"
+              up=yes
+              break
+            fi
+            if [ -z "$(docker ps -q -f name=mem0-smoke)" ]; then
+              echo "::error::container exited before serving"
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$up" ]; then
+            echo "::error::the image did not serve /docs within 60s"
+            exit 1
+          fi
+
+          # Booting is not enough. PGVector creates its collection lazily, so a
+          # broken vector store still serves /docs -- which is exactly how the
+          # missing-libpq image looked healthy at build time. Reading memories
+          # forces _ensure_collection and puts psycopg, libpq and the vector
+          # extension on the actual code path.
+          curl -fsS "http://localhost:8000/memories?user_id=smoke" | tee /tmp/memories.json
+          echo
+          grep -q '"results"' /tmp/memories.json
+
+      - name: Assert the vector store was really touched
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -tAc \
+            "SELECT to_regclass('public.memories') IS NOT NULL" | grep -qx t
+
+      - name: Container logs
+        if: failure()
+        run: docker logs mem0-smoke || true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        run: |
+          docker push "${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
+          docker push "${REGISTRY}/${IMAGE_NAME}:latest"
+
+      - name: Trigger homelab deployment
+        env:
+          HOMELAB_DISPATCH_TOKEN: ${{ secrets.HOMELAB_DISPATCH_TOKEN }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PAYLOAD=$(jq -cn \
+            --arg sha "$COMMIT_SHA" \
+            --arg msg "$COMMIT_MESSAGE" \
+            '{event_type:"deploy-mem0",client_payload:{branch:"main",sha:$sha,commit_message:$msg,force_clean:false}}')
+          HTTP_CODE=$(curl -sS -o /tmp/dispatch.body -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer $HOMELAB_DISPATCH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/bluefishforsale/homelab/dispatches \
+            -d "$PAYLOAD")
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/dispatch.body
+          echo
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            exit 1
+          fi
