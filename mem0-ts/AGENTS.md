@@ -1,5 +1,27 @@
 # TypeScript SDK (`mem0-ts/`)
 
+> **Unmaintained in this fork. Do not port changes into it.**
+>
+> Nothing this fork deploys uses it. The memory store runs the Python SDK behind
+> the FastAPI server in `server/`, and the MCP bridge in front of it is Python
+> too. Every npm `mem0ai` consumer in this repository is an upstream example or
+> integration that we do not run. We do not publish to npm and do not send pull
+> requests upstream, so there is no downstream consumer either.
+>
+> It has therefore drifted from `mem0/`, and that is expected rather than debt:
+> the fact-extraction prompts teach opposite rules about generic facts, the BM25
+> tokenizer is spaCy lemmatization on the Python side and Porter stemming here,
+> the rerank candidate pool differs, payload keys are camelCase here and
+> snake_case there, and `semantic_score` exists only in Python.
+>
+> **Keeping the two in step is not worth it.** Parity was maintained by hand,
+> and the last attempt introduced three bugs that did not exist in the original,
+> including a payload key spelling that silently made recency score zero. The
+> REST API, not this package, is the interface: anything needing a Node or
+> browser client should call the server over HTTP.
+>
+> Left in place rather than deleted, so merging from upstream stays clean.
+
 The `mem0ai` package on npm. Hosted client plus self-hosted OSS memory.
 
 ## Commands

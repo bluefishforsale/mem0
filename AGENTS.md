@@ -14,6 +14,7 @@ This is a polyglot monorepo and **every package sets its own rules**. Read the `
 - Modify anything in `.github/workflows/` without explicit maintainer approval. Publishing credentials are pinned to workflow filenames.
 - Commit `.env` files, API keys, or credentials.
 - Skip pre-commit hooks.
+- Port a change from `mem0/` into `mem0-ts/`. The TypeScript SDK is unmaintained in this fork and has drifted deliberately. See [`mem0-ts/AGENTS.md`](mem0-ts/AGENTS.md).
 - Use npm or yarn in TypeScript packages. This repo is pnpm-only (Bun in `.opencode-plugin/`).
 - Use `require()` in TypeScript. ES module `import` syntax only.
 - Mix up linter configs. Root Python is ruff at line length **120**, `cli/python/` is ruff at **100**, `cli/node/` is Biome, `mem0-ts/` is Prettier, `integrations/vercel-ai-sdk/` is ESLint.
@@ -27,7 +28,7 @@ This is a polyglot monorepo and **every package sets its own rules**. Read the `
 |---------|------|-----------|
 | `mem0/` | [`mem0/AGENTS.md`](mem0/AGENTS.md) | hatch, ruff 120, pytest |
 | `tests/` | [`tests/AGENTS.md`](tests/AGENTS.md) | pytest |
-| `mem0-ts/` | [`mem0-ts/AGENTS.md`](mem0-ts/AGENTS.md) | pnpm, tsup, Prettier, jest |
+| `mem0-ts/` | [`mem0-ts/AGENTS.md`](mem0-ts/AGENTS.md) | **unmaintained in this fork, do not port into it** |
 | `cli/python/` | [`cli/python/AGENTS.md`](cli/python/AGENTS.md) | ruff **100**, pytest |
 | `cli/node/` | [`cli/node/AGENTS.md`](cli/node/AGENTS.md) | pnpm, tsup, Biome, vitest |
 | `integrations/` | [`integrations/AGENTS.md`](integrations/AGENTS.md) | varies per integration |
@@ -41,7 +42,7 @@ This is a polyglot monorepo and **every package sets its own rules**. Read the `
 | Directory | What it is |
 |-----------|------------|
 | `mem0/` | Core Python SDK (`mem0ai` on PyPI): memory, LLMs, embeddings, vector stores, graphs, rerankers |
-| `mem0-ts/` | TypeScript SDK (`mem0ai` on npm): hosted client + OSS memory |
+| `mem0-ts/` | TypeScript SDK (`mem0ai` on npm). **Unmaintained here**: nothing this fork deploys uses it, and it has drifted from `mem0/` on purpose. See [`mem0-ts/AGENTS.md`](mem0-ts/AGENTS.md). |
 | `cli/python/` | Python CLI (`mem0-cli` on PyPI), Typer-based, entry point `mem0` |
 | `cli/node/` | Node CLI (`@mem0/cli` on npm), Commander-based, entry point `mem0` |
 | `integrations/` | Agent and editor integrations, one self-contained directory each |
