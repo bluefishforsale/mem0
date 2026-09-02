@@ -143,10 +143,31 @@ See the full catalog in <Link href="/components/llms/overview">Components</Link>
   Mixing managed and self-hosted components? Make sure every outbound provider call has a secure network path. Managed rerankers and embedders often require outbound internet even if your vector store is on-prem.
 </Warning>
 
+## Unknown keys are rejected (Python)
+
+`MemoryConfig` accepts only the keys it defines. Anything else fails validation
+rather than being dropped:
+
+```python
+Memory.from_config({"add_context_topk": 3})
+# pydantic_core.ValidationError: 1 validation error for MemoryConfig
+# add_context_topk
+#   Extra inputs are not permitted
+```
+
+That is deliberate. A misspelt knob that is silently ignored looks exactly like
+one that is working, and so does a block the SDK no longer honours — `graph_store`
+being the case people actually hit. Failing at the config is the only point where
+the mistake is still cheap to find.
+
+The self-hosted server applies the same rule: `POST /configure` answers `400` with
+the offending key, and the running configuration is left as it was.
+
 ## Quick recovery
 
 - Qdrant connection errors: confirm port `6333` is exposed and the API key (if set) matches.
 - Empty search results: verify the embedder model name. A mismatch causes dimension errors.
+- `Extra inputs are not permitted` (Python): a config key is misspelt or no longer supported. The message names it; check it against the fields on `MemoryConfig`.
 - `Unknown reranker` (Python): upgrade the SDK with `pip install --upgrade mem0ai` to load the latest provider registry.
 - `Cannot find module` (Node): two common causes. First, import from the OSS entry point, `import { Memory } from "mem0ai/oss"`, not `"mem0ai"`. Second, provider SDKs are optional peer dependencies loaded on demand, so install the one for the provider you configured (for example `npm install @qdrant/js-client-rest` for Qdrant). Installing `mem0ai` alone only pulls in the providers used by default; you do not need SDKs for providers you never select.
 

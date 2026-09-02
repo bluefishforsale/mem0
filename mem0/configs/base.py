@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from mem0.configs.rerankers.config import RerankerConfig
 from mem0.embeddings.configs import EmbedderConfig
@@ -28,6 +28,13 @@ class MemoryItem(BaseModel):
 
 
 class MemoryConfig(BaseModel):
+    # NOTE: pydantic's default is extra="ignore", which drops an unrecognised key
+    # without a word. That makes every option below weaker than it looks: a
+    # misspelt knob reads as accepted, and so does `graph_store`, which v3 removed
+    # and no longer honours. Reject instead, so a config that cannot do what it
+    # says fails where it is written.
+    model_config = ConfigDict(extra="forbid")
+
     vector_store: VectorStoreConfig = Field(
         description="Configuration for the vector store",
         default_factory=VectorStoreConfig,

@@ -87,8 +87,13 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     global _current_config, _memory_instance
     with _state_lock:
         next_config = _merge_config(_current_config, updates)
+        # NOTE: build before committing. A rejected config that has already been
+        # assigned becomes the base of the next merge, so one bad key poisons
+        # every update after it while the running instance still serves the old
+        # config and reports nothing wrong.
+        next_instance = Memory.from_config(next_config)
         _current_config = next_config
-        _memory_instance = Memory.from_config(next_config)
+        _memory_instance = next_instance
         overrides = _load_overrides()
         overrides = _merge_config(overrides, updates)
         _save_overrides(overrides)
