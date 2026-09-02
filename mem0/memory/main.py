@@ -1451,13 +1451,14 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                     )
 
                     # 7d: Separate into inserts vs updates
+                    dedup_threshold = self.config.dedup_similarity_threshold
                     to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
                     for j, key in enumerate(valid_keys):
                         entity_type, entity_text, memory_ids = global_entities[key]
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
                         match = exact_match or semantic_match
                         if match:
                             # Update existing entity
