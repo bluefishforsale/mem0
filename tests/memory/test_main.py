@@ -1522,3 +1522,18 @@ class TestRetrievalKnobsReachTheirSites:
         )
 
         assert restatements == {"alice likes tea"}
+
+    @pytest.mark.asyncio
+    async def test_async_restatement_check_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.vector_store = Mock()
+        memory.vector_store.search_batch = Mock(return_value=[[SimpleNamespace(score=0.6)]])
+
+        restatements = await memory._restatements_of_existing(
+            ["alice likes tea"],
+            {"alice likes tea": [0.1, 0.2, 0.3]},
+            {"user_id": "u1"},
+        )
+
+        assert restatements == {"alice likes tea"}
