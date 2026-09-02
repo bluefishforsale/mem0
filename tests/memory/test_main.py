@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from mem0.configs.base import MemoryConfig
 from mem0.exceptions import LLMError
 from mem0.memory.main import AsyncMemory, Memory
 from mem0.utils.scoring import RECENCY_HALF_LIFE_DAYS
@@ -1494,3 +1495,28 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         assert any("padding/truncating" in r.message for r in caplog.records), (
             "expected count-mismatch warning was not emitted"
         )
+
+
+class TestRetrievalKnobsReachTheirSites:
+    """A knob is only configurable if every site that gates on it reads the config.
+
+    Four literals used to be module constants; the entity-match bar drifted once
+    already (see the NOTE on DEDUP_SIMILARITY_THRESHOLD), so each knob gets a test
+    that a non-default value actually changes behaviour at the site it names.
+    """
+
+    def test_entity_upsert_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
+        near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search = Mock(return_value=[near_match])
+
+        memory._upsert_entity("alice", "person", "mem-1", {"user_id": "u1"})
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]

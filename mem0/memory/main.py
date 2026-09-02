@@ -44,6 +44,7 @@ from mem0.utils.factory import (
 )
 from mem0.utils.lemmatization import lemmatize_for_bm25
 from mem0.utils.scoring import (
+    DEDUP_SIMILARITY_THRESHOLD,
     ENTITY_BOOST_WEIGHT,
     get_bm25_params,
     normalize_bm25,
@@ -578,16 +579,6 @@ SLOW_QUERY_WARN_SECONDS = 2.0
 # so it has something to promote; set too high it just costs reranker latency.
 RERANK_CANDIDATE_MULTIPLIER = 3
 
-# Cosine similarity above which two things are treated as the same thing said
-# differently: a freshly extracted memory as a restatement of one already
-# stored, and an extracted entity as one already in the entity store.
-#
-# NOTE: both really do read this name now. Four entity-match sites used to
-# hardcode 0.95, so changing this moved the memory bar and silently left the
-# entity bar where it was. If the two ever need to diverge, split the constant
-# rather than reintroducing a literal.
-DEDUP_SIMILARITY_THRESHOLD = 0.95
-
 
 class _OSSProject:
     def update(
@@ -897,7 +888,8 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+            dedup_threshold = self.config.dedup_similarity_threshold
+            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
             match = exact_match or semantic_match
             if match:
                 # Update existing entity's linked_memory_ids

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from mem0.configs.rerankers.config import RerankerConfig
 from mem0.embeddings.configs import EmbedderConfig
 from mem0.llms.configs import LlmConfig
-from mem0.utils.scoring import RECENCY_HALF_LIFE_DAYS
+from mem0.utils.scoring import DEDUP_SIMILARITY_THRESHOLD, RECENCY_HALF_LIFE_DAYS
 from mem0.vector_stores.configs import VectorStoreConfig
 
 # Set up the directory path
@@ -64,6 +64,17 @@ class MemoryConfig(BaseModel):
         ),
         default=RECENCY_HALF_LIFE_DAYS,
         ge=0,
+    )
+    dedup_similarity_threshold: float = Field(
+        description=(
+            "Cosine similarity at or above which an extracted memory or entity is treated "
+            "as a restatement of one already stored. Retune it per embedder: models do not "
+            "share a similarity scale, so a bar tuned on one silently over- or under-merges "
+            "on another."
+        ),
+        default=DEDUP_SIMILARITY_THRESHOLD,
+        ge=0,
+        le=1,
     )
 
 
