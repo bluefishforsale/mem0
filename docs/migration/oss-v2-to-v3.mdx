@@ -340,9 +340,15 @@ Graph memory is removed from the open-source SDK. It is not being replaced by an
 
 **Migration:**
 - Remove `enable_graph` / `enableGraph` from your config
-- Remove the `graph_store` / `graphStore` block: it is no longer read
+- Remove the `graph_store` / `graphStore` block: `MemoryConfig` rejects it
 - Uninstall external graph drivers (neo4j, memgraph, etc.) if you were using them only for Mem0
 - If you need graph memory, use [Mem0 Platform](/platform/features/graph-memory) instead of self-hosted OSS
+
+<Note>
+Leaving either in place is an error, not a silent no-op. `MemoryConfig` rejects
+any key it does not define, so a config carrying `graph_store` fails where it is
+written rather than starting up and quietly never doing graph memory.
+</Note>
 
 <Warning>
 The old `relations` field on search results (populated by the external graph store) is no longer returned in OSS. OSS has no graph memory replacement, so there is nothing to populate this field with. If your application read or traversed the `relations` array, either move to Mem0 Platform to keep that data or redesign that part against the new OSS retrieval API.

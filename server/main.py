@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from models import RequestLog, User
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 from rate_limit import limiter
 from routers import api_keys as api_keys_router
 from routers import auth as auth_router
@@ -359,7 +360,13 @@ def list_bundled_providers(_auth=Depends(verify_auth)):
 def set_config(config: Dict[str, Any], _auth=Depends(require_admin)):
     """Set memory configuration. Requires admin role."""
     _validate_bundled_providers(config)
-    update_config(config)
+    try:
+        update_config(config)
+    except PydanticValidationError as e:
+        # A config the server cannot build is the caller's mistake, not an
+        # outage. Uncaught it is a 500, which sends people looking at the server
+        # instead of at the key they misspelt.
+        raise HTTPException(status_code=400, detail=f"Invalid configuration: {e}") from e
     return {"message": "Configuration set successfully"}
 
 
