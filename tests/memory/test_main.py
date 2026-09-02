@@ -10,7 +10,6 @@ import pytest
 from mem0.configs.base import MemoryConfig
 from mem0.exceptions import LLMError
 from mem0.memory.main import AsyncMemory, Memory
-from mem0.utils.scoring import RECENCY_HALF_LIFE_DAYS
 
 
 def _setup_mocks(mocker):
@@ -40,9 +39,6 @@ class TestAddToVectorStoreErrors:
         mock_llm, _ = _setup_mocks(mocker)
 
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         # v3 pipeline needs db.get_last_messages to return a list
@@ -251,9 +247,6 @@ class TestAsyncAddToVectorStoreErrors:
         mock_llm, _ = _setup_mocks(mocker)
 
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         # v3 pipeline needs db.get_last_messages to return a list
@@ -322,10 +315,6 @@ def _build_memory_instance(mocker, memory_cls):
     mocker.patch("mem0.memory.main.SQLiteManager", mocker.MagicMock())
     mocker.patch("mem0.memory.main.MEM0_TELEMETRY", False)
     memory = memory_cls()
-    memory.config = mocker.MagicMock()
-    memory.config.custom_instructions = None
-    memory.config.custom_update_memory_prompt = None
-    memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
     memory.api_version = "v1.1"
     memory.vector_store = mocker.MagicMock()
     memory.db = mocker.MagicMock()
@@ -1065,9 +1054,6 @@ class TestSupersede:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1183,9 +1169,6 @@ class TestAddTimestamp:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1238,8 +1221,6 @@ class TestAddTimestamp:
     async def test_async_timestamp_backdates_created_at(self, mocker):
         _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1315,8 +1296,6 @@ class TestAddPipelineSemanticDedup:
     async def test_async_restatement_is_not_stored(self, mocker):
         _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1379,9 +1358,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
     def mock_memory(self, mocker):
         mock_llm, _ = _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1393,9 +1369,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
     def mock_async_memory(self, mocker):
         mock_llm, _ = _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
