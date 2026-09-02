@@ -1273,8 +1273,6 @@ class TestAddPipelineSemanticDedup:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1537,3 +1535,17 @@ class TestRetrievalKnobsReachTheirSites:
         memory._entity_store.insert.assert_not_called()
         memory._entity_store.update.assert_called_once()
         assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+
+    def test_restatement_check_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.vector_store = Mock()
+        memory.vector_store.search_batch = Mock(return_value=[[SimpleNamespace(score=0.6)]])
+
+        restatements = memory._restatements_of_existing(
+            ["alice likes tea"],
+            {"alice likes tea": [0.1, 0.2, 0.3]},
+            {"user_id": "u1"},
+        )
+
+        assert restatements == {"alice likes tea"}

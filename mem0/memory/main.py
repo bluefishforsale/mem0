@@ -1042,11 +1042,12 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             return set()
 
         restatements = set()
+        dedup_threshold = self.config.dedup_similarity_threshold
         for (text, _), matches in zip(pairs, batches):
             if not matches:
                 continue
             score = getattr(matches[0], "score", None) or 0.0
-            if score >= DEDUP_SIMILARITY_THRESHOLD:
+            if score >= dedup_threshold:
                 logger.debug(f"Skipping restatement of an existing memory: {text[:50]}")
                 restatements.add(text)
         return restatements
