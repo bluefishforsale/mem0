@@ -110,8 +110,6 @@ class TestSessionScopeWiring:
         mocker.patch("mem0.memory.storage.SQLiteManager", mocker.MagicMock())
 
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = mocker.MagicMock(return_value=[])

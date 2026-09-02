@@ -127,6 +127,18 @@ W_RECENCY = 0.08
 # MemoryConfig.recency_half_life_days.
 RECENCY_HALF_LIFE_DAYS = 180.0
 
+# Cosine similarity above which two things are treated as the same thing said
+# differently: a freshly extracted memory as a restatement of one already
+# stored, and an extracted entity as one already in the entity store.
+#
+# NOTE: this is the default, not the bar. It lives here rather than in
+# memory/main.py so MemoryConfig.dedup_similarity_threshold can default to it
+# without a second literal; read the config at the gate, never this constant.
+# Four entity-match sites used to hardcode 0.95, so moving the memory bar
+# silently left the entity bar where it was. If the two ever need to diverge,
+# split the knob rather than reintroducing a literal.
+DEDUP_SIMILARITY_THRESHOLD = 0.95
+
 
 def score_and_rank(
     semantic_results: List[Dict[str, Any]],

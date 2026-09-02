@@ -7,9 +7,9 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
+from mem0.configs.base import MemoryConfig
 from mem0.exceptions import LLMError
 from mem0.memory.main import AsyncMemory, Memory
-from mem0.utils.scoring import RECENCY_HALF_LIFE_DAYS
 
 
 def _setup_mocks(mocker):
@@ -39,9 +39,6 @@ class TestAddToVectorStoreErrors:
         mock_llm, _ = _setup_mocks(mocker)
 
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         # v3 pipeline needs db.get_last_messages to return a list
@@ -250,9 +247,6 @@ class TestAsyncAddToVectorStoreErrors:
         mock_llm, _ = _setup_mocks(mocker)
 
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         # v3 pipeline needs db.get_last_messages to return a list
@@ -321,10 +315,6 @@ def _build_memory_instance(mocker, memory_cls):
     mocker.patch("mem0.memory.main.SQLiteManager", mocker.MagicMock())
     mocker.patch("mem0.memory.main.MEM0_TELEMETRY", False)
     memory = memory_cls()
-    memory.config = mocker.MagicMock()
-    memory.config.custom_instructions = None
-    memory.config.custom_update_memory_prompt = None
-    memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
     memory.api_version = "v1.1"
     memory.vector_store = mocker.MagicMock()
     memory.db = mocker.MagicMock()
@@ -1064,9 +1054,6 @@ class TestSupersede:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1182,9 +1169,6 @@ class TestAddTimestamp:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.recency_half_life_days = RECENCY_HALF_LIFE_DAYS
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1237,8 +1221,6 @@ class TestAddTimestamp:
     async def test_async_timestamp_backdates_created_at(self, mocker):
         _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1272,8 +1254,6 @@ class TestAddPipelineSemanticDedup:
     def mock_memory(self, mocker):
         _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1316,8 +1296,6 @@ class TestAddPipelineSemanticDedup:
     async def test_async_restatement_is_not_stored(self, mocker):
         _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1380,9 +1358,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
     def mock_memory(self, mocker):
         mock_llm, _ = _setup_mocks(mocker)
         memory = Memory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1394,9 +1369,6 @@ class TestAddPipelineEntityEmbeddingCountGuard:
     def mock_async_memory(self, mocker):
         mock_llm, _ = _setup_mocks(mocker)
         memory = AsyncMemory()
-        memory.config = mocker.MagicMock()
-        memory.config.custom_instructions = None
-        memory.config.custom_update_memory_prompt = None
         memory.custom_instructions = None
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1494,3 +1466,198 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         assert any("padding/truncating" in r.message for r in caplog.records), (
             "expected count-mismatch warning was not emitted"
         )
+
+
+class TestRetrievalKnobsReachTheirSites:
+    """A knob is only configurable if every site that gates on it reads the config.
+
+    Four literals used to be module constants; the entity-match bar drifted once
+    already (see the NOTE on DEDUP_SIMILARITY_THRESHOLD), so each knob gets a test
+    that a non-default value actually changes behaviour at the site it names.
+    """
+
+    def test_entity_upsert_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
+        near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search = Mock(return_value=[near_match])
+
+        memory._upsert_entity("alice", "person", "mem-1", {"user_id": "u1"})
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+
+    @pytest.mark.asyncio
+    async def test_async_entity_upsert_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
+        near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search = Mock(return_value=[near_match])
+
+        await memory._upsert_entity_async("alice", "person", "mem-1", {"user_id": "u1"})
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+
+    def test_restatement_check_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.vector_store = Mock()
+        memory.vector_store.search_batch = Mock(return_value=[[SimpleNamespace(score=0.6)]])
+
+        restatements = memory._restatements_of_existing(
+            ["alice likes tea"],
+            {"alice likes tea": [0.1, 0.2, 0.3]},
+            {"user_id": "u1"},
+        )
+
+        assert restatements == {"alice likes tea"}
+
+    @pytest.mark.asyncio
+    async def test_async_restatement_check_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.vector_store = Mock()
+        memory.vector_store.search_batch = Mock(return_value=[[SimpleNamespace(score=0.6)]])
+
+        restatements = await memory._restatements_of_existing(
+            ["alice likes tea"],
+            {"alice likes tea": [0.1, 0.2, 0.3]},
+            {"user_id": "u1"},
+        )
+
+        assert restatements == {"alice likes tea"}
+
+    def test_batch_entity_link_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[("person", "alice")]])
+        memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        near_match = Mock(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search_batch = Mock(return_value=[[near_match]])
+
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+        memory.vector_store.search = Mock(return_value=[])
+        memory.vector_store.search_batch = Mock(return_value=[[Mock(id="other", score=0.1, payload={"data": "x"})]])
+        memory.vector_store.insert = Mock()
+
+        memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_batch_entity_link_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[("person", "alice")]])
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        near_match = Mock(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search_batch = Mock(return_value=[[near_match]])
+
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+        memory.vector_store.search = Mock(return_value=[])
+        memory.vector_store.search_batch = Mock(return_value=[[Mock(id="other", score=0.1, payload={"data": "x"})]])
+        memory.vector_store.insert = Mock()
+
+        await memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            effective_filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+
+    def test_add_pipeline_retrieves_the_configured_number_of_existing_memories(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        memory = Memory(MemoryConfig(add_context_top_k=3))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        stored = [Mock(id=f"m{i}", score=0.1, payload={"data": f"fact {i}"}) for i in range(10)]
+        memory.vector_store.search = Mock(side_effect=lambda query, vectors, top_k, filters: stored[:top_k])
+        memory.vector_store.search_batch = Mock(return_value=[[]])
+        memory.vector_store.insert = Mock()
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+
+        memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        assert memory.vector_store.search.call_args.kwargs["top_k"] == 3
+
+    @pytest.mark.asyncio
+    async def test_async_add_pipeline_retrieves_the_configured_number_of_existing_memories(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        memory = AsyncMemory(MemoryConfig(add_context_top_k=3))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        stored = [Mock(id=f"m{i}", score=0.1, payload={"data": f"fact {i}"}) for i in range(10)]
+        memory.vector_store.search = Mock(side_effect=lambda query, vectors, top_k, filters: stored[:top_k])
+        memory.vector_store.search_batch = Mock(return_value=[[]])
+        memory.vector_store.insert = Mock()
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+
+        await memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            effective_filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        assert memory.vector_store.search.call_args.kwargs["top_k"] == 3

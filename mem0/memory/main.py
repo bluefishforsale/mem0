@@ -578,16 +578,6 @@ SLOW_QUERY_WARN_SECONDS = 2.0
 # so it has something to promote; set too high it just costs reranker latency.
 RERANK_CANDIDATE_MULTIPLIER = 3
 
-# Cosine similarity above which two things are treated as the same thing said
-# differently: a freshly extracted memory as a restatement of one already
-# stored, and an extracted entity as one already in the entity store.
-#
-# NOTE: both really do read this name now. Four entity-match sites used to
-# hardcode 0.95, so changing this moved the memory bar and silently left the
-# entity bar where it was. If the two ever need to diverge, split the constant
-# rather than reintroducing a literal.
-DEDUP_SIMILARITY_THRESHOLD = 0.95
-
 
 class _OSSProject:
     def update(
@@ -897,7 +887,8 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+            dedup_threshold = self.config.dedup_similarity_threshold
+            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
             match = exact_match or semantic_match
             if match:
                 # Update existing entity's linked_memory_ids
@@ -1031,7 +1022,8 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         """Of `texts`, those a stored memory already says in different words.
 
         The extraction prompt asks the model to skip these, but it only sees the
-        ten memories the Phase 1 search surfaced, and paraphrase slips through.
+        add_context_top_k memories the Phase 1 search surfaced, and paraphrase
+        slips through.
         Fails open: losing a memory is worse than storing a duplicate.
         """
         pairs = [(t, embed_map[t]) for t in texts if t in embed_map]
@@ -1050,11 +1042,12 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             return set()
 
         restatements = set()
+        dedup_threshold = self.config.dedup_similarity_threshold
         for (text, _), matches in zip(pairs, batches):
             if not matches:
                 continue
             score = getattr(matches[0], "score", None) or 0.0
-            if score >= DEDUP_SIMILARITY_THRESHOLD:
+            if score >= dedup_threshold:
                 logger.debug(f"Skipping restatement of an existing memory: {text[:50]}")
                 restatements.add(text)
         return restatements
@@ -1229,7 +1222,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         existing_results = self.vector_store.search(
             query=parsed_messages,
             vectors=query_embedding,
-            top_k=10,
+            top_k=self.config.add_context_top_k,
             filters=search_filters,
         )
 
@@ -1458,13 +1451,14 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                     )
 
                     # 7d: Separate into inserts vs updates
+                    dedup_threshold = self.config.dedup_similarity_threshold
                     to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
                     for j, key in enumerate(valid_keys):
                         entity_type, entity_text, memory_ids = global_entities[key]
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
                         match = exact_match or semantic_match
                         if match:
                             # Update existing entity
@@ -2435,7 +2429,8 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+            dedup_threshold = self.config.dedup_similarity_threshold
+            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
             match = exact_match or semantic_match
             if match:
                 payload = match.payload or {}
@@ -2555,7 +2550,8 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         """Of `texts`, those a stored memory already says in different words.
 
         The extraction prompt asks the model to skip these, but it only sees the
-        ten memories the Phase 1 search surfaced, and paraphrase slips through.
+        add_context_top_k memories the Phase 1 search surfaced, and paraphrase
+        slips through.
         Fails open: losing a memory is worse than storing a duplicate.
         """
         pairs = [(t, embed_map[t]) for t in texts if t in embed_map]
@@ -2575,11 +2571,12 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             return set()
 
         restatements = set()
+        dedup_threshold = self.config.dedup_similarity_threshold
         for (text, _), matches in zip(pairs, batches):
             if not matches:
                 continue
             score = getattr(matches[0], "score", None) or 0.0
-            if score >= DEDUP_SIMILARITY_THRESHOLD:
+            if score >= dedup_threshold:
                 logger.debug(f"Skipping restatement of an existing memory (async): {text[:50]}")
                 restatements.add(text)
         return restatements
@@ -2742,7 +2739,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             self.vector_store.search,
             query=parsed_messages,
             vectors=query_embedding,
-            top_k=10,
+            top_k=self.config.add_context_top_k,
             filters=search_filters,
         )
 
@@ -2967,13 +2964,14 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                     )
 
                     # 7d: Separate into inserts vs updates
+                    dedup_threshold = self.config.dedup_similarity_threshold
                     to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
                     for j, key in enumerate(valid_keys):
                         entity_type, entity_text, memory_ids = global_entities[key]
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
                         match = exact_match or semantic_match
                         if match:
                             payload = match.payload or {}

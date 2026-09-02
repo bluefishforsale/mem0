@@ -188,6 +188,23 @@ const expiring = memory.add(messages, {
 If you do choose `infer=False`, keep it consistent. Raw inserts skip inference, so a later `infer=True` call with the same content can create a second memory.
 </Warning>
 
+## Tuning the add pipeline
+
+Two knobs on the open-source `MemoryConfig` change what the extraction model sees and how readily Mem0 folds a new fact into an existing one.
+
+```python Python
+from mem0 import Memory
+
+memory = Memory.from_config({
+    "add_context_top_k": 20,             # default 10
+    "dedup_similarity_threshold": 0.90,  # default 0.95
+})
+```
+
+`add_context_top_k` caps how many existing memories the extraction model is shown when it decides whether a new fact updates, contradicts, or merely restates a stored one. The model only reasons about what is in that window, so on a scope holding hundreds of memories about a single topic, a small window silently misses contradictions. Raising it costs prompt tokens on every `add`.
+
+`dedup_similarity_threshold` is the cosine similarity at or above which a new fact is treated as a restatement of a stored one, and an extracted entity as one already in the entity store. Retune it whenever you change embedding model: models do not share a similarity scale, so a bar tuned on one will over-merge distinct facts or wave duplicates through on another. Lower it to merge more aggressively, raise it to keep near-duplicates apart.
+
 ## When Should You Add Memory?
 
 Add memory whenever your agent learns something useful:
