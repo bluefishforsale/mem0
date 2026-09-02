@@ -17,7 +17,37 @@ import pytest
 
 pytest.importorskip("fastapi", reason="fastapi not installed")
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # noqa: E402
+
+
+def _disposable_database_is_available() -> bool:
+    """These are E2E tests: they sign up users and mint API keys, so they need
+    the app's own tables, not a mock. Without a database 39 of them fail on the
+    connection alone and the rest fail on the 500s that follow.
+
+    NOTE: reachability is deliberately not the trigger. `server/main.py` calls
+    `load_dotenv()`, so a developer with a populated `.env` can have the suite
+    pointed at a real deployment without knowing it — and these tests write. The
+    opt-in has to be a thing someone typed on purpose, which is why it is an
+    env var and not a ping.
+    """
+    if os.environ.get("MEM0_SERVER_TEST_DB") != "1":
+        return False
+    try:
+        import db
+        from sqlalchemy import text
+
+        with db.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _disposable_database_is_available(),
+    reason="needs a disposable app database; set MEM0_SERVER_TEST_DB=1 to opt in",
+)
 
 
 # ---------------------------------------------------------------------------

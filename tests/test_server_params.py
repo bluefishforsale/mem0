@@ -36,7 +36,7 @@ def _mock_memory():
     mock_instance.delete_all.return_value = {"message": "Memories deleted"}
     mock_instance.reset.return_value = None
 
-    with patch.dict(os.environ, {"OPENAI_API_KEY": "fake-key", "ADMIN_API_KEY": ""}):
+    with patch.dict(os.environ, {"OPENAI_API_KEY": "fake-key", "ADMIN_API_KEY": "", "AUTH_DISABLED": "true"}):
         with patch("mem0.Memory.from_config", return_value=mock_instance):
             yield mock_instance
 
@@ -45,7 +45,10 @@ def _mock_memory():
 def client(_mock_memory):
     """Return a TestClient wired to the server app with mocked Memory."""
     import server.main as server_main
-    with patch.dict(os.environ, {"ADMIN_API_KEY": ""}):
+
+    # AUTH_DISABLED: these test parameter forwarding, not auth. test_server_auth.py
+    # owns that, and wants the opposite mode, so neither file may rely on ambient env.
+    with patch.dict(os.environ, {"ADMIN_API_KEY": "", "AUTH_DISABLED": "true"}):
         importlib.reload(server_main)
     return TestClient(server_main.app)
 
