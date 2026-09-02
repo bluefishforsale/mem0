@@ -2427,7 +2427,8 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                     filters=search_filters,
                 )
 
-            semantic_match = existing[0] if existing and existing[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+            dedup_threshold = self.config.dedup_similarity_threshold
+            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
             match = exact_match or semantic_match
             if match:
                 payload = match.payload or {}

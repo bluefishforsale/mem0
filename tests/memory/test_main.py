@@ -1520,3 +1520,20 @@ class TestRetrievalKnobsReachTheirSites:
         memory._entity_store.insert.assert_not_called()
         memory._entity_store.update.assert_called_once()
         assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+
+    @pytest.mark.asyncio
+    async def test_async_entity_upsert_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
+        near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search = Mock(return_value=[near_match])
+
+        await memory._upsert_entity_async("alice", "person", "mem-1", {"user_id": "u1"})
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()
+        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
