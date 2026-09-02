@@ -1604,3 +1604,31 @@ class TestRetrievalKnobsReachTheirSites:
 
         memory._entity_store.insert.assert_not_called()
         memory._entity_store.update.assert_called_once()
+
+    def test_add_pipeline_retrieves_the_configured_number_of_existing_memories(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        memory = Memory(MemoryConfig(add_context_top_k=3))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        stored = [Mock(id=f"m{i}", score=0.1, payload={"data": f"fact {i}"}) for i in range(10)]
+        memory.vector_store.search = Mock(side_effect=lambda query, vectors, top_k, filters: stored[:top_k])
+        memory.vector_store.search_batch = Mock(return_value=[[]])
+        memory.vector_store.insert = Mock()
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+
+        memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        assert memory.vector_store.search.call_args.kwargs["top_k"] == 3

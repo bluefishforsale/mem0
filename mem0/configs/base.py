@@ -76,6 +76,16 @@ class MemoryConfig(BaseModel):
         ge=0,
         le=1,
     )
+    add_context_top_k: int = Field(
+        description=(
+            "How many existing memories the extraction model is shown when deciding whether "
+            "a new fact updates, contradicts, or duplicates what is already stored. It only "
+            "reasons about the memories in this window, so on a scope with many memories "
+            "about one topic, a small window silently misses contradictions."
+        ),
+        default=10,
+        ge=1,
+    )
 
 
 class AzureConfig(BaseModel):

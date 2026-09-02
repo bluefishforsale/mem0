@@ -1022,7 +1022,8 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         """Of `texts`, those a stored memory already says in different words.
 
         The extraction prompt asks the model to skip these, but it only sees the
-        ten memories the Phase 1 search surfaced, and paraphrase slips through.
+        add_context_top_k memories the Phase 1 search surfaced, and paraphrase
+        slips through.
         Fails open: losing a memory is worse than storing a duplicate.
         """
         pairs = [(t, embed_map[t]) for t in texts if t in embed_map]
@@ -1221,7 +1222,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         existing_results = self.vector_store.search(
             query=parsed_messages,
             vectors=query_embedding,
-            top_k=10,
+            top_k=self.config.add_context_top_k,
             filters=search_filters,
         )
 
@@ -2549,7 +2550,8 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         """Of `texts`, those a stored memory already says in different words.
 
         The extraction prompt asks the model to skip these, but it only sees the
-        ten memories the Phase 1 search surfaced, and paraphrase slips through.
+        add_context_top_k memories the Phase 1 search surfaced, and paraphrase
+        slips through.
         Fails open: losing a memory is worse than storing a duplicate.
         """
         pairs = [(t, embed_map[t]) for t in texts if t in embed_map]
