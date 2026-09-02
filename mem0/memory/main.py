@@ -1,5 +1,4 @@
 import asyncio
-import concurrent.futures
 import gc
 import hashlib
 import json
@@ -25,17 +24,19 @@ from mem0.configs.prompts import (
 from mem0.exceptions import LLMError
 from mem0.exceptions import ValidationError as Mem0ValidationError
 from mem0.memory.base import MemoryBase
+from mem0.memory.entity_store import EntityStore
 from mem0.memory.setup import mem0_dir, setup_config
 from mem0.memory.storage import SQLiteManager
 from mem0.memory.telemetry import MEM0_TELEMETRY, capture_event
 from mem0.memory.utils import (
+    _safe_deepcopy_config,
     extract_json,
     parse_messages,
     parse_vision_messages,
     process_telemetry_filters,
     remove_code_blocks,
 )
-from mem0.utils.entity_extraction import extract_entities, extract_entities_batch
+from mem0.utils.entity_extraction import extract_entities
 from mem0.utils.factory import (
     EmbedderFactory,
     LlmFactory,
@@ -44,7 +45,6 @@ from mem0.utils.factory import (
 )
 from mem0.utils.lemmatization import lemmatize_for_bm25
 from mem0.utils.scoring import (
-    ENTITY_BOOST_WEIGHT,
     get_bm25_params,
     normalize_bm25,
     score_and_rank,
@@ -58,55 +58,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*swigva
 # Initialize logger early for util functions
 logger = logging.getLogger(__name__)
 
-
-def _vector_store_list_rows(listed):
-    if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list):
-        return listed[0]
-    if isinstance(listed, (list, tuple)):
-        return listed
-    return []
-
-
-# Fields that hold runtime auth/connection objects and must be preserved.
-# These are non-serializable objects (e.g. AWSV4SignerAuth, RequestsHttpConnection)
-# needed by clients like OpenSearch — not sensitive strings to redact.
-_RUNTIME_FIELDS = frozenset({
-    "http_auth",
-    "auth",
-    "connection_class",
-    "ssl_context",
-})
-
-# Fields that are known to contain sensitive secrets and must be redacted.
-_SENSITIVE_FIELDS_EXACT = frozenset({
-    "api_key",
-    "secret_key",
-    "private_key",
-    "access_key",
-    "password",
-    "credentials",
-    "credential",
-    "secret",
-    "token",
-    "access_token",
-    "refresh_token",
-    "auth_token",
-    "session_token",
-    "client_secret",
-    "auth_client_secret",
-    "azure_client_secret",
-    "service_account_json",
-    "aws_session_token",
-})
-
-# Suffixes that indicate a field likely holds a secret value.
-_SENSITIVE_SUFFIXES = (
-    "_password",
-    "_secret",
-    "_token",
-    "_credential",
-    "_credentials",
-)
 
 # Entity parameters that must be passed via filters, not top-level kwargs
 ENTITY_PARAMS = frozenset({"user_id", "agent_id", "run_id"})
@@ -228,53 +179,6 @@ def _validate_and_trim_search_query(query: str) -> str:
     return trimmed
 
 
-def _is_sensitive_field(field_name: str) -> bool:
-    """Check if a field should be redacted for telemetry safety.
-
-    Uses a layered approach:
-    1. Runtime fields (allowlist) — always preserved, highest priority.
-    2. Exact deny list — known secret field names.
-    3. Suffix deny list — catches patterns like db_password, auth_secret, etc.
-    """
-    name = field_name.lower().strip()
-    if name in _RUNTIME_FIELDS:
-        return False
-    if name in _SENSITIVE_FIELDS_EXACT:
-        return True
-    return any(name.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES)
-
-
-def _safe_deepcopy_config(config):
-    """Safely deepcopy config, falling back to dict-based cloning for non-serializable objects."""
-    try:
-        return deepcopy(config)
-    except Exception as e:
-        logger.debug(f"Deepcopy failed, using dict-based cloning: {e}")
-
-        config_class = type(config)
-
-        if hasattr(config, "model_dump"):
-            try:
-                clone_dict = config.model_dump()
-            except Exception:
-                clone_dict = dict(config.__dict__)
-        else:
-            clone_dict = dict(config.__dict__)
-
-        # Restore runtime fields, redact sensitive ones
-        for field_name in list(clone_dict.keys()):
-            if field_name in _RUNTIME_FIELDS and hasattr(config, field_name):
-                clone_dict[field_name] = getattr(config, field_name)
-            elif _is_sensitive_field(field_name):
-                clone_dict[field_name] = None
-
-        try:
-            return config_class(**clone_dict)
-        except Exception:
-            logger.debug("Config reconstruction failed, returning shallow dict clone")
-            return type("Config", (), clone_dict)()
-
-
 def _normalize_iso_timestamp_to_utc(timestamp: Optional[str]) -> Optional[str]:
     """Normalize timezone-aware ISO timestamps to UTC without rewriting naive values."""
     if not timestamp:
@@ -394,11 +298,6 @@ def _build_session_scope(filters):
         if val:
             parts.append(f"{key}={_escape_scope_value(val)}")
     return "&".join(parts)
-
-
-def _entity_collection_name(provider: str, collection_name: str) -> str:
-    separator = "-" if provider == "s3_vectors" else "_"
-    return f"{collection_name}{separator}entities"
 
 
 def _normalize_expiration_date(value: Any) -> Optional[str]:
@@ -616,37 +515,7 @@ class _SharedMemoryLogic:
     NOTE: this is not the whole duplication. The add and search pipelines
     still exist twice, because unifying those needs either an unasync
     codegen step or an event-loop bridge, which is a different decision.
-
-    NOTE: ``_existing_entities_by_text`` calls the entity store
-    synchronously, so on ``AsyncMemory`` it blocks the event loop. That is
-    pre-existing and is preserved here deliberately: fixing it would make
-    the two copies differ again, which is a separate change.
     """
-
-    @staticmethod
-    def _normalize_entity_text(value: str) -> str:
-        return " ".join(value.strip().lower().split())
-
-
-    def _existing_entities_by_text(self, filters):
-        """Return existing entity rows keyed by normalized payload data."""
-        try:
-            listed = self.entity_store.list(filters=filters, top_k=10000)
-        except Exception as e:
-            logger.debug(f"Exact entity lookup failed, falling back to semantic dedup: {e}")
-            return {}
-
-        rows_by_text = {}
-        for row in _vector_store_list_rows(listed):
-            payload = getattr(row, "payload", None) or {}
-            text = payload.get("data")
-            if not isinstance(text, str):
-                continue
-            normalized = self._normalize_entity_text(text)
-            if normalized and normalized not in rows_by_text:
-                rows_by_text[normalized] = row
-        return rows_by_text
-
 
     def _should_use_agent_memory_extraction(self, messages, metadata):
         """Determine whether to use agent memory extraction based on the logic:
@@ -802,8 +671,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                 config.reranker.config
             )
 
-        # Entity store is initialized lazily on first use
-        self._entity_store = None
+        self.entities = EntityStore(self)
 
         if MEM0_TELEMETRY:
             # Create telemetry config manually to avoid deepcopy issues with thread locks
@@ -846,177 +714,6 @@ class Memory(_SharedMemoryLogic, MemoryBase):
     @property
     def project(self):
         return _OSSProject()
-
-    @property
-    def entity_store(self):
-        """Lazily initialize entity store on first use."""
-        if self._entity_store is None:
-            entity_config = _safe_deepcopy_config(self.config.vector_store.config)
-            entity_collection = _entity_collection_name(self.config.vector_store.provider, self.collection_name)
-            # Set collection name on the cloned config
-            if hasattr(entity_config, 'collection_name'):
-                entity_config.collection_name = entity_collection
-            elif isinstance(entity_config, dict):
-                entity_config['collection_name'] = entity_collection
-            # For Qdrant, share the existing client to avoid RocksDB lock contention
-            # when using embedded mode (path=...). QdrantConfig.client takes precedence
-            # over host/port/path.
-            if self.config.vector_store.provider == "qdrant" and hasattr(self.vector_store, "client"):
-                if hasattr(entity_config, "client"):
-                    entity_config.client = self.vector_store.client
-                elif isinstance(entity_config, dict):
-                    entity_config["client"] = self.vector_store.client
-            self._entity_store = VectorStoreFactory.create(
-                self.config.vector_store.provider, entity_config
-            )
-        return self._entity_store
-
-    def _upsert_entity(self, entity_text, entity_type, memory_id, filters):
-        """Upsert an entity into the entity store, linking it to a memory."""
-        try:
-            entity_embedding = self.embedding_model.embed(entity_text, "add")
-            search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-            exact_match = self._existing_entities_by_text(search_filters).get(self._normalize_entity_text(entity_text))
-
-            existing = []
-            if exact_match is None:
-                existing = self.entity_store.search(
-                    query=entity_text,
-                    vectors=entity_embedding,
-                    top_k=1,
-                    filters=search_filters,
-                )
-
-            dedup_threshold = self.config.dedup_similarity_threshold
-            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
-            match = exact_match or semantic_match
-            if match:
-                # Update existing entity's linked_memory_ids
-                payload = match.payload or {}
-                linked_ids = payload.get("linked_memory_ids", [])
-                if memory_id not in linked_ids:
-                    linked_ids.append(memory_id)
-                    payload["linked_memory_ids"] = linked_ids
-                    self.entity_store.update(
-                        vector_id=match.id,
-                        vector=None,
-                        payload=payload,
-                    )
-            else:
-                # Create new entity
-                entity_id = str(uuid.uuid4())
-                entity_payload = {
-                    "data": entity_text,
-                    "entity_type": entity_type,
-                    "linked_memory_ids": [memory_id],
-                    **{k: v for k, v in search_filters.items()},
-                }
-                self.entity_store.insert(
-                    vectors=[entity_embedding],
-                    ids=[entity_id],
-                    payloads=[entity_payload],
-                )
-        except Exception as e:
-            logger.warning(f"Entity upsert failed for '{entity_text}': {e}")
-
-    def _bulk_clear_entity_store(self, filters):
-        """Delete all entity records matching the given scope filters.
-
-        Used by delete_all, which would otherwise clean the entity store inside
-        every _delete_memory: each of those lists the whole entity collection,
-        so deleting N memories meant N full scans.
-        """
-        if self._entity_store is None:
-            return
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        try:
-            listed = self.entity_store.list(filters=search_filters, top_k=10000)
-            rows = listed[0] if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list) else listed
-            for row in rows or []:
-                try:
-                    self.entity_store.delete(vector_id=row.id)
-                except Exception as e:
-                    logger.debug(f"Bulk entity delete failed for id={row.id}: {e}")
-        except Exception as e:
-            logger.warning(f"Bulk entity store cleanup failed: {e}")
-
-    def _remove_memory_from_entity_store(self, memory_id, filters):
-        """Strip `memory_id` from every entity record scoped to `filters`.
-
-        For each entity whose `linked_memory_ids` contains `memory_id`:
-          - remove the id; if the list becomes empty, delete the entity record.
-          - otherwise re-embed the entity text and update the payload
-            (the vector store's update() requires a vector).
-
-        No-op if the entity store has never been initialized in this process.
-        Errors on individual entities are swallowed at debug level; outer
-        failures are swallowed at warning level so the primary delete/update
-        path is never broken by entity cleanup.
-        """
-        if self._entity_store is None:
-            return
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        try:
-            listed = self.entity_store.list(filters=search_filters, top_k=10000)
-            rows = listed[0] if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list) else listed
-            for row in rows or []:
-                try:
-                    payload = getattr(row, "payload", None) or {}
-                    linked = payload.get("linked_memory_ids", [])
-                    if not isinstance(linked, list) or memory_id not in linked:
-                        continue
-                    remaining = [mid for mid in linked if mid != memory_id]
-                    if not remaining:
-                        try:
-                            self.entity_store.delete(vector_id=row.id)
-                        except Exception as e:
-                            logger.debug(f"Entity delete failed for id={row.id}: {e}")
-                    else:
-                        entity_text = payload.get("data")
-                        if not isinstance(entity_text, str) or not entity_text:
-                            logger.debug(f"Entity id={row.id} missing 'data'; skipping update during cleanup")
-                            continue
-                        try:
-                            vec = self.embedding_model.embed(entity_text, "update")
-                        except Exception as e:
-                            logger.debug(f"Entity re-embed failed for '{entity_text}': {e}")
-                            continue
-                        new_payload = {**payload, "linked_memory_ids": remaining}
-                        try:
-                            self.entity_store.update(
-                                vector_id=row.id,
-                                vector=vec,
-                                payload=new_payload,
-                            )
-                        except Exception as e:
-                            logger.debug(f"Entity update failed for id={row.id}: {e}")
-                except Exception as e:
-                    logger.debug(f"Entity cleanup error: {e}")
-        except Exception as e:
-            logger.warning(f"Entity store cleanup failed for memory_id={memory_id}: {e}")
-
-    def _link_entities_for_memory(self, memory_id, text, filters):
-        """Extract entities from `text` and link them to `memory_id` in the
-        entity store, scoped to `filters`. Simpler single-memory variant of
-        Phase 7 in add(): per-entity search-then-update-or-insert via the
-        existing `_upsert_entity` helper. Non-fatal on any failure.
-        """
-        try:
-            entities = extract_entities(text)
-            if not entities:
-                return
-            seen = set()
-            for entity_type, entity_text in entities:
-                key = self._normalize_entity_text(entity_text)
-                if not key or key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    self._upsert_entity(entity_text, entity_type, memory_id, filters)
-                except Exception as e:
-                    logger.debug(f"Entity link failed for '{entity_text}': {e}")
-        except Exception as e:
-            logger.warning(f"Entity linking failed for memory_id={memory_id}: {e}")
 
     def _restatements_of_existing(self, texts, embed_map, filters):
         """Of `texts`, those a stored memory already says in different words.
@@ -1392,111 +1089,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         _supersede_contradicted(self.vector_store, self.db, records, existing_by_index)
 
         # Phase 7: Batch entity linking
-        try:
-            all_texts = [r[1] for r in records]
-            all_entities = extract_entities_batch(all_texts)
-
-            # 7a: Global dedup — collect unique entities across all memories
-            global_entities = {}  # normalized_key -> (entity_type, entity_text, set of memory_ids)
-            for idx, (memory_id, text, embedding, payload, _contradicted) in enumerate(records):
-                entities = all_entities[idx] if idx < len(all_entities) else []
-                for entity_type, entity_text in entities:
-                    key = self._normalize_entity_text(entity_text)
-                    if key in global_entities:
-                        global_entities[key][2].add(memory_id)
-                    else:
-                        global_entities[key] = [entity_type, entity_text, {memory_id}]
-
-            if global_entities:
-                ordered_keys = list(global_entities.keys())
-                entity_texts = [global_entities[k][1] for k in ordered_keys]
-
-                # 7b: Single batch embed for all unique entities
-                try:
-                    entity_embeddings = self.embedding_model.embed_batch(entity_texts, "add")
-                except Exception:
-                    # Fallback: embed individually, use None for failures
-                    entity_embeddings = []
-                    for t in entity_texts:
-                        try:
-                            entity_embeddings.append(self.embedding_model.embed(t, "add"))
-                        except Exception:
-                            entity_embeddings.append(None)
-
-
-                if len(entity_embeddings) != len(ordered_keys):
-                    logger.warning(
-                        "embed_batch returned %d vectors for %d entity texts — "
-                        "padding/truncating to avoid dropping entity links",
-                        len(entity_embeddings),
-                        len(ordered_keys),
-                    )
-                    entity_embeddings = list(entity_embeddings[: len(ordered_keys)])
-                    entity_embeddings += [None] * (len(ordered_keys) - len(entity_embeddings))
-
-                # Filter out entities with failed embeddings
-                valid = [(i, k) for i, k in enumerate(ordered_keys) if entity_embeddings[i] is not None]
-                if valid:
-                    valid_indices, valid_keys = zip(*valid)
-                    valid_vectors = [entity_embeddings[i] for i in valid_indices]
-                    exact_matches = self._existing_entities_by_text(search_filters)
-
-                    # 7c: Batch search for existing entities
-                    valid_texts = [global_entities[k][1] for k in valid_keys]
-                    existing_matches = self.entity_store.search_batch(
-                        queries=valid_texts,
-                        vectors_list=valid_vectors,
-                        top_k=1,
-                        filters=search_filters,
-                    )
-
-                    # 7d: Separate into inserts vs updates
-                    dedup_threshold = self.config.dedup_similarity_threshold
-                    to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
-                    for j, key in enumerate(valid_keys):
-                        entity_type, entity_text, memory_ids = global_entities[key]
-                        matches = existing_matches[j] if j < len(existing_matches) else []
-                        exact_match = exact_matches.get(key)
-
-                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
-                        match = exact_match or semantic_match
-                        if match:
-                            # Update existing entity
-                            payload = match.payload or {}
-                            linked = set(payload.get("linked_memory_ids", []))
-                            linked |= memory_ids
-                            payload["linked_memory_ids"] = sorted(linked)
-                            try:
-                                self.entity_store.update(
-                                    vector_id=match.id,
-                                    vector=None,
-                                    payload=payload,
-                                )
-                            except Exception as e:
-                                logger.debug(f"Entity update failed for '{entity_text}': {e}")
-                        else:
-                            # New entity — collect for batch insert
-                            to_insert_vectors.append(valid_vectors[j])
-                            to_insert_ids.append(str(uuid.uuid4()))
-                            to_insert_payloads.append({
-                                "data": entity_text,
-                                "entity_type": entity_type,
-                                "linked_memory_ids": sorted(memory_ids),
-                                **search_filters,
-                            })
-
-                    # 7e: Single batch insert for all new entities
-                    if to_insert_vectors:
-                        try:
-                            self.entity_store.insert(
-                                vectors=to_insert_vectors,
-                                ids=to_insert_ids,
-                                payloads=to_insert_payloads,
-                            )
-                        except Exception as e:
-                            logger.warning(f"Batch entity insert failed: {e}")
-        except Exception as e:
-            logger.warning(f"Batch entity linking failed: {e}")
+        self.entities.link_batch(records, filters)
 
         # Phase 8: Save messages + return
         self.db.save_messages(messages, session_scope)
@@ -1841,7 +1434,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         # Step 6: Compute entity boosts
         entity_boosts = {}
         if query_entities:
-            entity_boosts = self._compute_entity_boosts(query_entities, filters)
+            entity_boosts = self.entities.boosts_for(query_entities, filters)
 
         # Step 7: Build candidate set from semantic and keyword results
         candidates = []
@@ -1901,88 +1494,6 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             original_memories.append(memory_item_dict)
 
         return original_memories
-
-    def _compute_entity_boosts(self, query_entities, filters):
-        """Compute per-memory entity boosts from entity store search.
-
-        For each extracted entity from the query:
-        1. Embed the entity text
-        2. Search the entity store (threshold >= 0.5)
-        3. For each matched entity, boost its linked memories
-
-        Returns:
-            Dict mapping memory_id (str) -> max entity boost [0, 0.5].
-        """
-        # Deduplicate entities (max 8)
-        seen = set()
-        deduped = []
-        for entity_type, entity_text in query_entities[:8]:
-            key = self._normalize_entity_text(entity_text)
-            if key and key not in seen:
-                seen.add(key)
-                deduped.append((entity_type, entity_text))
-
-        if not deduped:
-            return {}
-
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        memory_boosts = {}
-
-        try:
-            entity_texts = [text for _, text in deduped]
-            embeddings = self.embedding_model.embed_batch(entity_texts, "search")
-
-            if len(embeddings) != len(entity_texts):
-                logger.warning(
-                    "embed_batch returned %d vectors for %d texts — skipping entity boost",
-                    len(embeddings),
-                    len(entity_texts),
-                )
-                return memory_boosts
-
-            entity_store = self.entity_store
-
-            def _search_entity(entity_text, embedding):
-                return entity_store.search(
-                    query=entity_text, vectors=embedding, top_k=500, filters=search_filters
-                )
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {
-                    pool.submit(_search_entity, text, emb): text
-                    for text, emb in zip(entity_texts, embeddings)
-                }
-
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        matches = future.result()
-                    except Exception as e:
-                        logger.warning("Entity boost search failed for one entity: %s", e)
-                        continue
-
-                    for match in matches:
-                        similarity = match.score if hasattr(match, 'score') else 0.0
-                        if similarity < 0.5:
-                            continue
-
-                        payload = match.payload if hasattr(match, 'payload') else {}
-                        linked_memory_ids = payload.get("linked_memory_ids", [])
-                        if not isinstance(linked_memory_ids, list):
-                            continue
-
-                        num_linked = max(len(linked_memory_ids), 1)
-                        memory_count_weight = 1.0 / (1.0 + 0.001 * ((num_linked - 1) ** 2))
-                        boost = similarity * ENTITY_BOOST_WEIGHT * memory_count_weight
-
-                        for memory_id in linked_memory_ids:
-                            if memory_id:
-                                memory_key = str(memory_id)
-                                memory_boosts[memory_key] = max(memory_boosts.get(memory_key, 0.0), boost)
-
-        except Exception as e:
-            logger.warning(f"Entity boost computation failed: {e}")
-
-        return memory_boosts
 
     def update(
         self,
@@ -2100,8 +1611,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
                 self._delete_memory(memory.id, skip_entity_cleanup=True)
             deleted_count += len(memories)
 
-        if self._entity_store is not None:
-            self._bulk_clear_entity_store(filters)
+        self.entities.bulk_clear(filters)
 
         logger.info(f"Deleted {deleted_count} memories")
 
@@ -2255,8 +1765,8 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         # then re-extract entities from the new text and link them back.
         session_filters = {k: new_metadata[k] for k in ("user_id", "agent_id", "run_id") if new_metadata.get(k)}
         if text_changed:
-            self._remove_memory_from_entity_store(memory_id, session_filters)
-            self._link_entities_for_memory(memory_id, data, session_filters)
+            self.entities.unlink_memory(memory_id, session_filters)
+            self.entities.link_memory(memory_id, data, session_filters)
 
         return memory_id
 
@@ -2291,7 +1801,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
         # one pass afterwards. Doing it per memory there means one full scan of
         # the entity collection per deleted row.
         if not skip_entity_cleanup:
-            self._remove_memory_from_entity_store(memory_id, session_filters)
+            self.entities.unlink_memory(memory_id, session_filters)
 
         return memory_id
 
@@ -2316,13 +1826,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             self.vector_store = VectorStoreFactory.create(
                 self.config.vector_store.provider, self.config.vector_store.config
             )
-        # Reset entity store if initialized
-        if self._entity_store is not None:
-            try:
-                self._entity_store.reset()
-            except Exception as e:
-                logger.warning(f"Failed to reset entity store: {e}")
-            self._entity_store = None
+        self.entities.reset()
 
         capture_event("mem0.reset", self, {"sync_type": "sync"})
 
@@ -2353,7 +1857,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         self.collection_name = self.config.vector_store.config.collection_name
         self.api_version = self.config.version
         self.custom_instructions = self.config.custom_instructions
-        self._entity_store = None
+        self.entities = EntityStore(self)
 
         # Initialize reranker if configured
         self.reranker = None
@@ -2386,165 +1890,6 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
     @property
     def project(self):
         return _AsyncOSSProject()
-
-    @property
-    def entity_store(self):
-        """Lazily initialize entity store on first use."""
-        if self._entity_store is None:
-            entity_config = _safe_deepcopy_config(self.config.vector_store.config)
-            entity_collection = _entity_collection_name(self.config.vector_store.provider, self.collection_name)
-            if hasattr(entity_config, 'collection_name'):
-                entity_config.collection_name = entity_collection
-            elif isinstance(entity_config, dict):
-                entity_config['collection_name'] = entity_collection
-            # For Qdrant, share the existing client to avoid RocksDB lock contention
-            # when using embedded mode (path=...). QdrantConfig.client takes precedence
-            # over host/port/path.
-            if self.config.vector_store.provider == "qdrant" and hasattr(self.vector_store, "client"):
-                if hasattr(entity_config, "client"):
-                    entity_config.client = self.vector_store.client
-                elif isinstance(entity_config, dict):
-                    entity_config["client"] = self.vector_store.client
-            self._entity_store = VectorStoreFactory.create(
-                self.config.vector_store.provider, entity_config
-            )
-        return self._entity_store
-
-    async def _upsert_entity_async(self, entity_text, entity_type, memory_id, filters):
-        """Async variant of `_upsert_entity` — per-entity search-then-update-or-insert."""
-        try:
-            entity_embedding = await asyncio.to_thread(self.embedding_model.embed, entity_text, "add")
-            search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-            exact_match = (
-                await asyncio.to_thread(self._existing_entities_by_text, search_filters)
-            ).get(self._normalize_entity_text(entity_text))
-
-            existing = []
-            if exact_match is None:
-                existing = await asyncio.to_thread(
-                    self.entity_store.search,
-                    query=entity_text,
-                    vectors=entity_embedding,
-                    top_k=1,
-                    filters=search_filters,
-                )
-
-            dedup_threshold = self.config.dedup_similarity_threshold
-            semantic_match = existing[0] if existing and existing[0].score >= dedup_threshold else None
-            match = exact_match or semantic_match
-            if match:
-                payload = match.payload or {}
-                linked_ids = payload.get("linked_memory_ids", [])
-                if memory_id not in linked_ids:
-                    linked_ids.append(memory_id)
-                    payload["linked_memory_ids"] = linked_ids
-                    await asyncio.to_thread(
-                        self.entity_store.update,
-                        vector_id=match.id,
-                        vector=None,
-                        payload=payload,
-                    )
-            else:
-                entity_id = str(uuid.uuid4())
-                entity_payload = {
-                    "data": entity_text,
-                    "entity_type": entity_type,
-                    "linked_memory_ids": [memory_id],
-                    **{k: v for k, v in search_filters.items()},
-                }
-                await asyncio.to_thread(
-                    self.entity_store.insert,
-                    vectors=[entity_embedding],
-                    ids=[entity_id],
-                    payloads=[entity_payload],
-                )
-        except Exception as e:
-            logger.warning(f"Entity upsert failed for '{entity_text}' (async): {e}")
-
-    async def _bulk_clear_entity_store(self, filters):
-        """Delete all entity records matching the given scope filters.
-
-        Used by delete_all to avoid the race condition that occurs when
-        concurrent _delete_memory coroutines each try to read-modify-write
-        the same entity rows' linked_memory_ids lists.
-        """
-        if self._entity_store is None:
-            return
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        try:
-            listed = await asyncio.to_thread(self.entity_store.list, filters=search_filters, top_k=10000)
-            rows = listed[0] if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list) else listed
-            for row in rows or []:
-                try:
-                    await asyncio.to_thread(self.entity_store.delete, vector_id=row.id)
-                except Exception as e:
-                    logger.debug(f"Bulk entity delete failed for id={row.id}: {e}")
-        except Exception as e:
-            logger.warning(f"Bulk entity store cleanup failed: {e}")
-
-    async def _remove_memory_from_entity_store(self, memory_id, filters):
-        """Async variant of `Memory._remove_memory_from_entity_store`."""
-        if self._entity_store is None:
-            return
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        try:
-            listed = await asyncio.to_thread(self.entity_store.list, filters=search_filters, top_k=10000)
-            rows = listed[0] if isinstance(listed, (list, tuple)) and listed and isinstance(listed[0], list) else listed
-            for row in rows or []:
-                try:
-                    payload = getattr(row, "payload", None) or {}
-                    linked = payload.get("linked_memory_ids", [])
-                    if not isinstance(linked, list) or memory_id not in linked:
-                        continue
-                    remaining = [mid for mid in linked if mid != memory_id]
-                    if not remaining:
-                        try:
-                            await asyncio.to_thread(self.entity_store.delete, vector_id=row.id)
-                        except Exception as e:
-                            logger.debug(f"Entity delete failed for id={row.id} (async): {e}")
-                    else:
-                        entity_text = payload.get("data")
-                        if not isinstance(entity_text, str) or not entity_text:
-                            logger.debug(f"Entity id={row.id} missing 'data'; skipping update during cleanup (async)")
-                            continue
-                        try:
-                            vec = await asyncio.to_thread(self.embedding_model.embed, entity_text, "update")
-                        except Exception as e:
-                            logger.debug(f"Entity re-embed failed for '{entity_text}' (async): {e}")
-                            continue
-                        new_payload = {**payload, "linked_memory_ids": remaining}
-                        try:
-                            await asyncio.to_thread(
-                                self.entity_store.update,
-                                vector_id=row.id,
-                                vector=vec,
-                                payload=new_payload,
-                            )
-                        except Exception as e:
-                            logger.debug(f"Entity update failed for id={row.id} (async): {e}")
-                except Exception as e:
-                    logger.debug(f"Entity cleanup error (async): {e}")
-        except Exception as e:
-            logger.warning(f"Entity store cleanup failed for memory_id={memory_id} (async): {e}")
-
-    async def _link_entities_for_memory(self, memory_id, text, filters):
-        """Async variant of `Memory._link_entities_for_memory`."""
-        try:
-            entities = await asyncio.to_thread(extract_entities, text)
-            if not entities:
-                return
-            seen = set()
-            for entity_type, entity_text in entities:
-                key = self._normalize_entity_text(entity_text)
-                if not key or key in seen:
-                    continue
-                seen.add(key)
-                try:
-                    await self._upsert_entity_async(entity_text, entity_type, memory_id, filters)
-                except Exception as e:
-                    logger.debug(f"Entity link failed for '{entity_text}' (async): {e}")
-        except Exception as e:
-            logger.warning(f"Entity linking failed for memory_id={memory_id} (async): {e}")
 
     async def _restatements_of_existing(self, texts, embed_map, filters):
         """Of `texts`, those a stored memory already says in different words.
@@ -2907,109 +2252,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         _supersede_contradicted(self.vector_store, self.db, records, existing_by_index)
 
         # Phase 7: Batch entity linking
-        try:
-            all_texts = [r[1] for r in records]
-            all_entities = await asyncio.to_thread(extract_entities_batch, all_texts)
-
-            # 7a: Global dedup
-            global_entities = {}
-            for idx, (memory_id, text, embedding, payload, _contradicted) in enumerate(records):
-                entities = all_entities[idx] if idx < len(all_entities) else []
-                for entity_type, entity_text in entities:
-                    key = self._normalize_entity_text(entity_text)
-                    if key in global_entities:
-                        global_entities[key][2].add(memory_id)
-                    else:
-                        global_entities[key] = [entity_type, entity_text, {memory_id}]
-
-            if global_entities:
-                ordered_keys = list(global_entities.keys())
-                entity_texts = [global_entities[k][1] for k in ordered_keys]
-
-                # 7b: Batch embed entities
-                try:
-                    entity_embeddings = await asyncio.to_thread(self.embedding_model.embed_batch, entity_texts, "add")
-                except Exception:
-                    entity_embeddings = []
-                    for t in entity_texts:
-                        try:
-                            entity_embeddings.append(await asyncio.to_thread(self.embedding_model.embed, t, "add"))
-                        except Exception:
-                            entity_embeddings.append(None)
-
-                if len(entity_embeddings) != len(ordered_keys):
-                    logger.warning(
-                        "embed_batch returned %d vectors for %d entity texts — "
-                        "padding/truncating to avoid dropping entity links",
-                        len(entity_embeddings),
-                        len(ordered_keys),
-                    )
-                    entity_embeddings = list(entity_embeddings[: len(ordered_keys)])
-                    entity_embeddings += [None] * (len(ordered_keys) - len(entity_embeddings))
-
-                valid = [(i, k) for i, k in enumerate(ordered_keys) if entity_embeddings[i] is not None]
-                if valid:
-                    valid_indices, valid_keys = zip(*valid)
-                    valid_vectors = [entity_embeddings[i] for i in valid_indices]
-                    exact_matches = await asyncio.to_thread(self._existing_entities_by_text, search_filters)
-
-                    # 7c: Batch search for existing entities
-                    valid_texts = [global_entities[k][1] for k in valid_keys]
-                    existing_matches = await asyncio.to_thread(
-                        self.entity_store.search_batch,
-                        queries=valid_texts,
-                        vectors_list=valid_vectors,
-                        top_k=1,
-                        filters=search_filters,
-                    )
-
-                    # 7d: Separate into inserts vs updates
-                    dedup_threshold = self.config.dedup_similarity_threshold
-                    to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
-                    for j, key in enumerate(valid_keys):
-                        entity_type, entity_text, memory_ids = global_entities[key]
-                        matches = existing_matches[j] if j < len(existing_matches) else []
-                        exact_match = exact_matches.get(key)
-
-                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
-                        match = exact_match or semantic_match
-                        if match:
-                            payload = match.payload or {}
-                            linked = set(payload.get("linked_memory_ids", []))
-                            linked |= memory_ids
-                            payload["linked_memory_ids"] = sorted(linked)
-                            try:
-                                await asyncio.to_thread(
-                                    self.entity_store.update,
-                                    vector_id=match.id,
-                                    vector=None,
-                                    payload=payload,
-                                )
-                            except Exception as e:
-                                logger.debug(f"Entity update failed for '{entity_text}' (async): {e}")
-                        else:
-                            to_insert_vectors.append(valid_vectors[j])
-                            to_insert_ids.append(str(uuid.uuid4()))
-                            to_insert_payloads.append({
-                                "data": entity_text,
-                                "entity_type": entity_type,
-                                "linked_memory_ids": sorted(memory_ids),
-                                **search_filters,
-                            })
-
-                    # 7e: Batch insert new entities
-                    if to_insert_vectors:
-                        try:
-                            await asyncio.to_thread(
-                                self.entity_store.insert,
-                                vectors=to_insert_vectors,
-                                ids=to_insert_ids,
-                                payloads=to_insert_payloads,
-                            )
-                        except Exception as e:
-                            logger.warning(f"Batch entity insert failed (async): {e}")
-        except Exception as e:
-            logger.warning(f"Batch entity linking failed (async): {e}")
+        await asyncio.to_thread(self.entities.link_batch, records, effective_filters)
 
         # Phase 8: Save messages + return
         await asyncio.to_thread(self.db.save_messages, messages, session_scope)
@@ -3360,7 +2603,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         # Step 6: Compute entity boosts
         entity_boosts = {}
         if query_entities:
-            entity_boosts = await self._compute_entity_boosts_async(query_entities, filters)
+            entity_boosts = await asyncio.to_thread(self.entities.boosts_for, query_entities, filters)
 
         # Step 7: Build candidate set from semantic and keyword results
         candidates = []
@@ -3419,80 +2662,6 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             original_memories.append(memory_item_dict)
 
         return original_memories
-
-    async def _compute_entity_boosts_async(self, query_entities, filters):
-        """Async version of entity boost computation."""
-        seen = set()
-        deduped = []
-        for entity_type, entity_text in query_entities[:8]:
-            key = self._normalize_entity_text(entity_text)
-            if key and key not in seen:
-                seen.add(key)
-                deduped.append((entity_type, entity_text))
-
-        if not deduped:
-            return {}
-
-        search_filters = {k: v for k, v in filters.items() if k in ("user_id", "agent_id", "run_id") and v}
-        memory_boosts = {}
-
-        try:
-            entity_texts = [text for _, text in deduped]
-            embeddings = await asyncio.to_thread(self.embedding_model.embed_batch, entity_texts, "search")
-
-            if len(embeddings) != len(entity_texts):
-                logger.warning(
-                    "embed_batch returned %d vectors for %d texts — skipping entity boost",
-                    len(embeddings),
-                    len(entity_texts),
-                )
-                return memory_boosts
-
-            sem = asyncio.Semaphore(4)
-
-            async def _search_entity(entity_text, embedding):
-                async with sem:
-                    return await asyncio.to_thread(
-                        self.entity_store.search,
-                        query=entity_text,
-                        vectors=embedding,
-                        top_k=500,
-                        filters=search_filters,
-                    )
-
-            results = await asyncio.gather(
-                *(_search_entity(text, emb) for text, emb in zip(entity_texts, embeddings)),
-                return_exceptions=True,
-            )
-
-            for matches in results:
-                if isinstance(matches, BaseException):
-                    logger.warning("Entity boost search failed for one entity: %s", matches)
-                    continue
-
-                for match in matches:
-                    similarity = match.score if hasattr(match, 'score') else 0.0
-                    if similarity < 0.5:
-                        continue
-
-                    payload = match.payload if hasattr(match, 'payload') else {}
-                    linked_memory_ids = payload.get("linked_memory_ids", [])
-                    if not isinstance(linked_memory_ids, list):
-                        continue
-
-                    num_linked = max(len(linked_memory_ids), 1)
-                    memory_count_weight = 1.0 / (1.0 + 0.001 * ((num_linked - 1) ** 2))
-                    boost = similarity * ENTITY_BOOST_WEIGHT * memory_count_weight
-
-                    for memory_id in linked_memory_ids:
-                        if memory_id:
-                            memory_key = str(memory_id)
-                            memory_boosts[memory_key] = max(memory_boosts.get(memory_key, 0.0), boost)
-
-        except Exception as e:
-            logger.warning(f"Entity boost computation failed: {e}")
-
-        return memory_boosts
 
     async def update(
         self,
@@ -3620,8 +2789,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             errors.extend(batch_errors)
             deleted_count += len(results) - len(batch_errors)
 
-        if self._entity_store is not None:
-            await self._bulk_clear_entity_store(filters)
+        await asyncio.to_thread(self.entities.bulk_clear, filters)
 
         if errors:
             logger.warning("Failed to delete %d memories", len(errors))
@@ -3804,8 +2972,8 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         # then re-extract entities from the new text and link them back.
         session_filters = {k: new_metadata[k] for k in ("user_id", "agent_id", "run_id") if new_metadata.get(k)}
         if text_changed:
-            await self._remove_memory_from_entity_store(memory_id, session_filters)
-            await self._link_entities_for_memory(memory_id, data, session_filters)
+            await asyncio.to_thread(self.entities.unlink_memory, memory_id, session_filters)
+            await asyncio.to_thread(self.entities.link_memory, memory_id, data, session_filters)
 
         return memory_id
 
@@ -3836,7 +3004,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
         )
 
         if not skip_entity_cleanup:
-            await self._remove_memory_from_entity_store(memory_id, session_filters)
+            await asyncio.to_thread(self.entities.unlink_memory, memory_id, session_filters)
 
         return memory_id
 
@@ -3863,12 +3031,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             self.config.vector_store.provider, self.config.vector_store.config
         )
 
-        if self._entity_store is not None:
-            try:
-                await asyncio.to_thread(self._entity_store.reset)
-            except Exception as e:
-                logger.warning(f"Failed to reset entity store: {e}")
-            self._entity_store = None
+        await asyncio.to_thread(self.entities.reset)
 
         capture_event("mem0.reset", self, {"sync_type": "async"})
 

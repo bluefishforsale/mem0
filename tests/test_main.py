@@ -126,7 +126,7 @@ def test_search(memory_instance):
     memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
     with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test query"), \
-         patch("mem0.memory.main.extract_entities", return_value=[]):
+         patch("mem0.memory.entity_store.extract_entities", return_value=[]):
         result = memory_instance.search("test query", filters={"user_id": "test_user"})
 
     assert "results" in result
@@ -153,7 +153,7 @@ def test_search_hides_expired_memories_by_default(memory_instance):
     memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
     with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test query"), \
-         patch("mem0.memory.main.extract_entities", return_value=[]):
+         patch("mem0.memory.entity_store.extract_entities", return_value=[]):
         result = memory_instance.search("test query", filters={"user_id": "test_user"})
 
     assert [memory["memory"] for memory in result["results"]] == ["Active memory"]
@@ -170,7 +170,7 @@ def test_search_can_show_expired_memories(memory_instance):
     memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
     with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test query"), \
-         patch("mem0.memory.main.extract_entities", return_value=[]):
+         patch("mem0.memory.entity_store.extract_entities", return_value=[]):
         result = memory_instance.search("test query", filters={"user_id": "test_user"}, show_expired=True)
 
     assert [memory["memory"] for memory in result["results"]] == ["Expired memory", "Active memory"]
@@ -261,8 +261,8 @@ def test_update_can_change_expiration_date_without_changing_text(
     )
     memory_instance.vector_store.update = Mock()
     memory_instance.db.add_history = Mock()
-    memory_instance._remove_memory_from_entity_store = Mock()
-    memory_instance._link_entities_for_memory = Mock()
+    memory_instance.entities.unlink_memory = Mock()
+    memory_instance.entities.link_memory = Mock()
 
     result = memory_instance.update("test_id", expiration_date=expiration_date)
 
@@ -270,8 +270,8 @@ def test_update_can_change_expiration_date_without_changing_text(
     payload = memory_instance.vector_store.update.call_args.kwargs["payload"]
     assert payload["data"] == "Existing memory"
     assert payload["expiration_date"] == expected_expiration_date
-    memory_instance._remove_memory_from_entity_store.assert_not_called()
-    memory_instance._link_entities_for_memory.assert_not_called()
+    memory_instance.entities.unlink_memory.assert_not_called()
+    memory_instance.entities.link_memory.assert_not_called()
 
 
 def test_delete(memory_instance):
@@ -346,15 +346,13 @@ def test_payload_promotion_merges_into_existing_metadata():
 @pytest.mark.parametrize(
     "name",
     [
-        "_normalize_entity_text",
-        "_existing_entities_by_text",
         "_should_use_agent_memory_extraction",
         "_process_metadata_filters",
         "_has_advanced_operators",
     ],
 )
 def test_shared_helpers_are_one_implementation_not_two_copies(name):
-    """These five carry no awaits and were byte-identical in both classes, so
+    """These carry no awaits and were byte-identical in both classes, so
     the duplication bought nothing and cost the usual thing: two places to fix
     a bug and no signal when only one gets fixed. `delete_all` already drifted
     that way, doing an entity-store scan per deleted memory on the sync side
@@ -368,6 +366,48 @@ def test_shared_helpers_are_one_implementation_not_two_copies(name):
     assert getattr(Memory, name) is getattr(AsyncMemory, name), (
         f"{name} exists separately on Memory and AsyncMemory"
     )
+
+
+@pytest.mark.parametrize(
+    "twin",
+    [
+        "entity_store",
+        "_upsert_entity",
+        "_upsert_entity_async",
+        "_link_entities_for_memory",
+        "_remove_memory_from_entity_store",
+        "_bulk_clear_entity_store",
+        "_compute_entity_boosts",
+        "_compute_entity_boosts_async",
+        "_normalize_entity_text",
+        "_existing_entities_by_text",
+    ],
+)
+def test_no_class_grows_its_own_copy_of_the_entity_store(twin):
+    """The entity store was written twice, once per class, and the twins were
+    the same code with `await asyncio.to_thread` on each store call. The four
+    entity-match sites had already drifted from the memory-side dedup bar
+    before anyone noticed.
+
+    These are the names those twins had. None may come back on either class:
+    the async side reaches EntityStore through one to_thread per call, which is
+    what keeps there being a single implementation to fix.
+    """
+    from mem0.memory.main import AsyncMemory, Memory
+
+    for cls in (Memory, AsyncMemory):
+        assert not hasattr(cls, twin), f"{cls.__name__}.{twin} is a second copy of the entity store"
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["upsert", "link_memory", "link_batch", "unlink_memory", "bulk_clear", "boosts_for", "reset"],
+)
+def test_the_entity_store_still_owns_every_operation(operation):
+    """The other half of the invariant above: the surface has to live somewhere."""
+    from mem0.memory.entity_store import EntityStore
+
+    assert callable(getattr(EntityStore, operation, None)), f"EntityStore lost {operation}"
 
 
 def test_delete_all_clears_the_entity_store_once_not_once_per_memory(memory_instance):
@@ -387,7 +427,7 @@ def test_delete_all_clears_the_entity_store_once_not_once_per_memory(memory_inst
     entity_store.list.return_value = ([], None)
     # The guard in _remove_memory_from_entity_store is `_entity_store is None`, so
     # this is what a long-running process looks like after its first add or search.
-    memory_instance._entity_store = entity_store
+    memory_instance.entities._store = entity_store
 
     memory_instance.delete_all(user_id="test_user")
 
@@ -599,7 +639,7 @@ class TestSearchParamValidation:
         memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
         with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test"), \
-             patch("mem0.memory.main.extract_entities", return_value=[]):
+             patch("mem0.memory.entity_store.extract_entities", return_value=[]):
             memory_instance.search("  test  ", filters={"user_id": "test"})
 
         memory_instance.embedding_model.embed.assert_called_once_with("test", "search")
@@ -632,7 +672,7 @@ class TestSearchParamValidation:
         memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
         with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test"), \
-             patch("mem0.memory.main.extract_entities", return_value=[]):
+             patch("mem0.memory.entity_store.extract_entities", return_value=[]):
             result = memory_instance.search("test", filters={"user_id": "test"}, threshold=0)
 
         assert "results" in result
@@ -645,7 +685,7 @@ class TestSearchParamValidation:
         memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
         with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test"), \
-             patch("mem0.memory.main.extract_entities", return_value=[]):
+             patch("mem0.memory.entity_store.extract_entities", return_value=[]):
             result = memory_instance.search("test", filters={"user_id": "test"}, threshold=1.0)
 
         assert "results" in result
@@ -658,7 +698,7 @@ class TestSearchParamValidation:
         memory_instance.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
 
         with patch("mem0.memory.main.lemmatize_for_bm25", return_value="test"), \
-             patch("mem0.memory.main.extract_entities", return_value=[]):
+             patch("mem0.memory.entity_store.extract_entities", return_value=[]):
             result = memory_instance.search("test", filters={"user_id": "test"}, top_k=0)
 
         assert "results" in result

@@ -226,8 +226,8 @@ class TestAsyncUpdate:
         )
         mock_async_memory.vector_store.update = Mock()
         mock_async_memory.db.add_history = Mock()
-        mock_async_memory._remove_memory_from_entity_store = mocker.AsyncMock()
-        mock_async_memory._link_entities_for_memory = mocker.AsyncMock()
+        mock_async_memory.entities.unlink_memory = mocker.AsyncMock()
+        mock_async_memory.entities.link_memory = mocker.AsyncMock()
 
         result = await mock_async_memory.update("test_id", expiration_date="2999-01-01")
 
@@ -235,8 +235,8 @@ class TestAsyncUpdate:
         payload = mock_async_memory.vector_store.update.call_args.kwargs["payload"]
         assert payload["data"] == "Existing memory"
         assert payload["expiration_date"] == "2999-01-01"
-        mock_async_memory._remove_memory_from_entity_store.assert_not_called()
-        mock_async_memory._link_entities_for_memory.assert_not_called()
+        mock_async_memory.entities.unlink_memory.assert_not_called()
+        mock_async_memory.entities.link_memory.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -879,10 +879,10 @@ class TestEntityBoostParallelism:
         def fake_search(query, vectors, top_k, filters):
             return results_by_query[query]
 
-        mock_memory._entity_store = Mock()
-        mock_memory._entity_store.search = Mock(side_effect=fake_search)
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search = Mock(side_effect=fake_search)
 
-        boosts = mock_memory._compute_entity_boosts(
+        boosts = mock_memory.entities.boosts_for(
             [("person", "alice"), ("person", "bob")],
             {"user_id": "u1"},
         )
@@ -895,10 +895,10 @@ class TestEntityBoostParallelism:
     def test_sync_embed_batch_called_once(self, mock_memory):
         mock_memory.embedding_model = Mock()
         mock_memory.embedding_model.embed_batch = Mock(return_value=[[0.1], [0.1], [0.1]])
-        mock_memory._entity_store = Mock()
-        mock_memory._entity_store.search = Mock(return_value=[_make_match(0.7, ["mem-1"])])
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search = Mock(return_value=[_make_match(0.7, ["mem-1"])])
 
-        mock_memory._compute_entity_boosts(
+        mock_memory.entities.boosts_for(
             [("person", "alice"), ("person", "bob"), ("person", "carol")],
             {"user_id": "u1"},
         )
@@ -920,10 +920,10 @@ class TestEntityBoostParallelism:
         def fake_search(query, vectors, top_k, filters):
             return results_by_query[query]
 
-        mock_async_memory._entity_store = Mock()
-        mock_async_memory._entity_store.search = Mock(side_effect=fake_search)
+        mock_async_memory.entities._store = Mock()
+        mock_async_memory.entities._store.search = Mock(side_effect=fake_search)
 
-        boosts = await mock_async_memory._compute_entity_boosts_async(
+        boosts = mock_async_memory.entities.boosts_for(
             [("person", "alice"), ("person", "bob")],
             {"user_id": "u1"},
         )
@@ -937,10 +937,10 @@ class TestEntityBoostParallelism:
     async def test_async_embed_batch_called_once(self, mock_async_memory):
         mock_async_memory.embedding_model = Mock()
         mock_async_memory.embedding_model.embed_batch = Mock(return_value=[[0.1], [0.1], [0.1]])
-        mock_async_memory._entity_store = Mock()
-        mock_async_memory._entity_store.search = Mock(return_value=[_make_match(0.7, ["mem-1"])])
+        mock_async_memory.entities._store = Mock()
+        mock_async_memory.entities._store.search = Mock(return_value=[_make_match(0.7, ["mem-1"])])
 
-        await mock_async_memory._compute_entity_boosts_async(
+        mock_async_memory.entities.boosts_for(
             [("person", "alice"), ("person", "bob"), ("person", "carol")],
             {"user_id": "u1"},
         )
@@ -956,11 +956,11 @@ class TestEntityBoostParallelism:
                 raise RuntimeError("provider timeout")
             return [_make_match(0.8, ["mem-9"])]
 
-        mock_memory._entity_store = Mock()
-        mock_memory._entity_store.search = Mock(side_effect=fake_search)
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search = Mock(side_effect=fake_search)
 
         with caplog.at_level(logging.WARNING):
-            boosts = mock_memory._compute_entity_boosts(
+            boosts = mock_memory.entities.boosts_for(
                 [("person", "boom"), ("person", "ok")],
                 {"user_id": "u1"},
             )
@@ -978,11 +978,11 @@ class TestEntityBoostParallelism:
                 raise RuntimeError("provider timeout")
             return [_make_match(0.8, ["mem-9"])]
 
-        mock_async_memory._entity_store = Mock()
-        mock_async_memory._entity_store.search = Mock(side_effect=fake_search)
+        mock_async_memory.entities._store = Mock()
+        mock_async_memory.entities._store.search = Mock(side_effect=fake_search)
 
         with caplog.at_level(logging.WARNING):
-            boosts = await mock_async_memory._compute_entity_boosts_async(
+            boosts = mock_async_memory.entities.boosts_for(
                 [("person", "boom"), ("person", "ok")],
                 {"user_id": "u1"},
             )
@@ -1003,12 +1003,12 @@ class TestEntityBoostParallelism:
             concurrent_count["current"] -= 1
             return [_make_match(0.7, [f"mem-{query}"])]
 
-        mock_memory._entity_store = Mock()
-        mock_memory._entity_store.search = Mock(side_effect=blocking_search)
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search = Mock(side_effect=blocking_search)
 
         entities = [("person", f"e{i}") for i in range(4)]
         start = time.perf_counter()
-        boosts = mock_memory._compute_entity_boosts(entities, {"user_id": "u1"})
+        boosts = mock_memory.entities.boosts_for(entities, {"user_id": "u1"})
         elapsed = time.perf_counter() - start
 
         assert elapsed < 0.75, f"searches did not run concurrently (took {elapsed:.2f}s)"
@@ -1029,12 +1029,12 @@ class TestEntityBoostParallelism:
             concurrent_count["current"] -= 1
             return [_make_match(0.7, [f"mem-{query}"])]
 
-        mock_async_memory._entity_store = Mock()
-        mock_async_memory._entity_store.search = Mock(side_effect=blocking_search)
+        mock_async_memory.entities._store = Mock()
+        mock_async_memory.entities._store.search = Mock(side_effect=blocking_search)
 
         entities = [("person", f"e{i}") for i in range(4)]
         start = time.perf_counter()
-        boosts = await mock_async_memory._compute_entity_boosts_async(entities, {"user_id": "u1"})
+        boosts = mock_async_memory.entities.boosts_for(entities, {"user_id": "u1"})
         elapsed = time.perf_counter() - start
 
         assert elapsed < 0.75, f"searches did not run concurrently (took {elapsed:.2f}s)"
@@ -1069,9 +1069,9 @@ class TestSupersede:
         memory.vector_store.search_batch = Mock(return_value=[[]])
         memory.vector_store.insert = Mock()
         memory.vector_store.update = Mock()
-        memory._entity_store = Mock()
-        memory._entity_store.search_batch = Mock(return_value=[[]])
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        memory.entities._store = Mock()
+        memory.entities._store.search_batch = Mock(return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         mocker.patch("mem0.memory.main.capture_event")
         return memory
 
@@ -1137,7 +1137,7 @@ class TestSupersededVisibility:
             ]
         )
         memory.vector_store.list = Mock(return_value=[list(memory.vector_store.search.return_value)])
-        mocker.patch("mem0.memory.main.extract_entities", return_value=[])
+        mocker.patch("mem0.memory.entity_store.extract_entities", return_value=[])
         return memory
 
     def test_search_hides_a_superseded_memory(self, mock_memory):
@@ -1181,9 +1181,9 @@ class TestAddTimestamp:
         memory.vector_store.search = Mock(return_value=[])
         memory.vector_store.search_batch = Mock(return_value=[[]])
         memory.vector_store.insert = Mock()
-        memory._entity_store = Mock()
-        memory._entity_store.search_batch = Mock(return_value=[[]])
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        memory.entities._store = Mock()
+        memory.entities._store.search_batch = Mock(return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         mocker.patch("mem0.memory.main.capture_event")
         return memory
 
@@ -1233,7 +1233,7 @@ class TestAddTimestamp:
         memory.vector_store.search = Mock(return_value=[])
         memory.vector_store.search_batch = Mock(return_value=[[]])
         memory.vector_store.insert = Mock()
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         mocker.patch("mem0.memory.main.capture_event")
 
         await memory.add("I went to Paris last week", user_id="u1", timestamp="2023-05-24")
@@ -1262,9 +1262,9 @@ class TestAddPipelineSemanticDedup:
         memory.embedding_model = Mock()
         memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
         memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
-        memory._entity_store = Mock()
-        memory._entity_store.search_batch = Mock(return_value=[[]])
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[], []])
+        memory.entities._store = Mock()
+        memory.entities._store.search_batch = Mock(return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[], []])
         mocker.patch("mem0.memory.main.capture_event")
         return memory
 
@@ -1304,7 +1304,7 @@ class TestAddPipelineSemanticDedup:
         memory.embedding_model = Mock()
         memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
         memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         mocker.patch("mem0.memory.main.capture_event")
 
         memory.llm.generate_response.return_value = '{"memory": [{"text": "User enjoys coffee"}]}'
@@ -1391,13 +1391,13 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         mock_memory.embedding_model.embed_batch = Mock(side_effect=self._short_entity_embed_batch)
         mock_memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
 
-        mock_memory._entity_store = Mock()
-        mock_memory._entity_store.search_batch = Mock(return_value=[[]])
-        mock_memory._entity_store.insert = Mock()
-        mock_memory._entity_store.update = Mock()
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search_batch = Mock(return_value=[[]])
+        mock_memory.entities._store.insert = Mock()
+        mock_memory.entities._store.update = Mock()
 
         mocker.patch(
-            "mem0.memory.main.extract_entities_batch",
+            "mem0.memory.entity_store.extract_entities_batch",
             return_value=[
                 [("person", "Alice"), ("person", "Bob")],
                 [("person", "Bob"), ("person", "Alice")],
@@ -1417,8 +1417,8 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         assert len(result) == 2
         # The entity block did NOT abort: it searched + inserted the one valid entity
         # instead of swallowing an IndexError and linking nothing.
-        assert mock_memory._entity_store.search_batch.call_count == 1
-        assert mock_memory._entity_store.insert.call_count == 1
+        assert mock_memory.entities._store.search_batch.call_count == 1
+        assert mock_memory.entities._store.insert.call_count == 1
         assert not any("Batch entity linking failed" in r.message for r in caplog.records), (
             "entity linking aborted on a swallowed IndexError"
         )
@@ -1435,13 +1435,13 @@ class TestAddPipelineEntityEmbeddingCountGuard:
         mock_async_memory.embedding_model.embed_batch = Mock(side_effect=self._short_entity_embed_batch)
         mock_async_memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
 
-        mock_async_memory._entity_store = Mock()
-        mock_async_memory._entity_store.search_batch = Mock(return_value=[[]])
-        mock_async_memory._entity_store.insert = Mock()
-        mock_async_memory._entity_store.update = Mock()
+        mock_async_memory.entities._store = Mock()
+        mock_async_memory.entities._store.search_batch = Mock(return_value=[[]])
+        mock_async_memory.entities._store.insert = Mock()
+        mock_async_memory.entities._store.update = Mock()
 
         mocker.patch(
-            "mem0.memory.main.extract_entities_batch",
+            "mem0.memory.entity_store.extract_entities_batch",
             return_value=[
                 [("person", "Alice"), ("person", "Bob")],
                 [("person", "Bob"), ("person", "Alice")],
@@ -1458,8 +1458,8 @@ class TestAddPipelineEntityEmbeddingCountGuard:
             )
 
         assert len(result) == 2
-        assert mock_async_memory._entity_store.search_batch.call_count == 1
-        assert mock_async_memory._entity_store.insert.call_count == 1
+        assert mock_async_memory.entities._store.search_batch.call_count == 1
+        assert mock_async_memory.entities._store.insert.call_count == 1
         assert not any("Batch entity linking failed" in r.message for r in caplog.records), (
             "async entity linking aborted on a swallowed IndexError"
         )
@@ -1482,15 +1482,15 @@ class TestRetrievalKnobsReachTheirSites:
         memory.embedding_model = Mock()
         memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
         near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
-        memory._entity_store = Mock()
-        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
-        memory._entity_store.search = Mock(return_value=[near_match])
+        memory.entities._store = Mock()
+        memory.entities._store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory.entities._store.search = Mock(return_value=[near_match])
 
-        memory._upsert_entity("alice", "person", "mem-1", {"user_id": "u1"})
+        memory.entities.upsert("alice", "person", "mem-1", {"user_id": "u1"})
 
-        memory._entity_store.insert.assert_not_called()
-        memory._entity_store.update.assert_called_once()
-        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+        memory.entities._store.insert.assert_not_called()
+        memory.entities._store.update.assert_called_once()
+        assert memory.entities._store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
 
     @pytest.mark.asyncio
     async def test_async_entity_upsert_honours_a_lowered_dedup_threshold(self, mocker):
@@ -1499,15 +1499,15 @@ class TestRetrievalKnobsReachTheirSites:
         memory.embedding_model = Mock()
         memory.embedding_model.embed = Mock(return_value=[0.1, 0.2, 0.3])
         near_match = SimpleNamespace(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
-        memory._entity_store = Mock()
-        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
-        memory._entity_store.search = Mock(return_value=[near_match])
+        memory.entities._store = Mock()
+        memory.entities._store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory.entities._store.search = Mock(return_value=[near_match])
 
-        await memory._upsert_entity_async("alice", "person", "mem-1", {"user_id": "u1"})
+        memory.entities.upsert("alice", "person", "mem-1", {"user_id": "u1"})
 
-        memory._entity_store.insert.assert_not_called()
-        memory._entity_store.update.assert_called_once()
-        assert memory._entity_store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
+        memory.entities._store.insert.assert_not_called()
+        memory.entities._store.update.assert_called_once()
+        assert memory.entities._store.update.call_args.kwargs["payload"]["linked_memory_ids"] == ["mem-0", "mem-1"]
 
     def test_restatement_check_honours_a_lowered_dedup_threshold(self, mocker):
         _setup_mocks(mocker)
@@ -1541,7 +1541,7 @@ class TestRetrievalKnobsReachTheirSites:
     def test_batch_entity_link_honours_a_lowered_dedup_threshold(self, mocker):
         _setup_mocks(mocker)
         mocker.patch("mem0.memory.main.capture_event")
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[("person", "alice")]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[("person", "alice")]])
         memory = Memory(MemoryConfig(dedup_similarity_threshold=0.5))
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1552,9 +1552,9 @@ class TestRetrievalKnobsReachTheirSites:
         memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
 
         near_match = Mock(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
-        memory._entity_store = Mock()
-        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
-        memory._entity_store.search_batch = Mock(return_value=[[near_match]])
+        memory.entities._store = Mock()
+        memory.entities._store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory.entities._store.search_batch = Mock(return_value=[[near_match]])
 
         memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
         memory.vector_store.search = Mock(return_value=[])
@@ -1568,14 +1568,14 @@ class TestRetrievalKnobsReachTheirSites:
             infer=True,
         )
 
-        memory._entity_store.insert.assert_not_called()
-        memory._entity_store.update.assert_called_once()
+        memory.entities._store.insert.assert_not_called()
+        memory.entities._store.update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_batch_entity_link_honours_a_lowered_dedup_threshold(self, mocker):
         _setup_mocks(mocker)
         mocker.patch("mem0.memory.main.capture_event")
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[("person", "alice")]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[("person", "alice")]])
         memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1586,9 +1586,9 @@ class TestRetrievalKnobsReachTheirSites:
         memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
 
         near_match = Mock(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
-        memory._entity_store = Mock()
-        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
-        memory._entity_store.search_batch = Mock(return_value=[[near_match]])
+        memory.entities._store = Mock()
+        memory.entities._store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory.entities._store.search_batch = Mock(return_value=[[near_match]])
 
         memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
         memory.vector_store.search = Mock(return_value=[])
@@ -1602,13 +1602,13 @@ class TestRetrievalKnobsReachTheirSites:
             infer=True,
         )
 
-        memory._entity_store.insert.assert_not_called()
-        memory._entity_store.update.assert_called_once()
+        memory.entities._store.insert.assert_not_called()
+        memory.entities._store.update.assert_called_once()
 
     def test_add_pipeline_retrieves_the_configured_number_of_existing_memories(self, mocker):
         _setup_mocks(mocker)
         mocker.patch("mem0.memory.main.capture_event")
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         memory = Memory(MemoryConfig(add_context_top_k=3))
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
@@ -1637,7 +1637,7 @@ class TestRetrievalKnobsReachTheirSites:
     async def test_async_add_pipeline_retrieves_the_configured_number_of_existing_memories(self, mocker):
         _setup_mocks(mocker)
         mocker.patch("mem0.memory.main.capture_event")
-        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[]])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
         memory = AsyncMemory(MemoryConfig(add_context_top_k=3))
         memory.api_version = "v1.1"
         memory.db.get_last_messages = MagicMock(return_value=[])
