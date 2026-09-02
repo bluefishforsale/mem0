@@ -128,7 +128,7 @@ def test_memory_entity_store_uses_s3_valid_index_name(mock_boto_client, mock_llm
     }
 
     memory = Memory.from_config(config)
-    assert memory.entity_store is not None
+    assert memory.entities.store is not None
 
     index_names = [call.kwargs["indexName"] for call in mock_boto_client.get_index.call_args_list]
     assert INDEX_NAME in index_names

@@ -7,7 +7,8 @@ import pytest
 
 from mem0 import Memory
 from mem0.configs.base import MemoryConfig
-from mem0.memory.main import RERANK_CANDIDATE_MULTIPLIER, _entity_collection_name
+from mem0.memory.entity_store import entity_collection_name
+from mem0.memory.main import RERANK_CANDIDATE_MULTIPLIER
 from mem0.memory.utils import normalize_facts
 
 
@@ -40,11 +41,11 @@ def test_create_memory(memory_client):
 
 
 def test_entity_collection_name_uses_dash_for_s3_vectors():
-    assert _entity_collection_name("s3_vectors", "test-index") == "test-index-entities"
+    assert entity_collection_name("s3_vectors", "test-index") == "test-index-entities"
 
 
 def test_entity_collection_name_keeps_underscore_for_other_stores():
-    assert _entity_collection_name("qdrant", "mem0") == "mem0_entities"
+    assert entity_collection_name("qdrant", "mem0") == "mem0_entities"
 
 
 def test_get_memory(memory_client):
@@ -204,7 +205,7 @@ def test_search_handles_incomplete_payloads(mock_sqlite, mock_llm_factory, mock_
     assert result[0]["memory"] == "content"
 
 
-@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.memory.entity_store.extract_entities', return_value=[])
 @patch('mem0.utils.factory.EmbedderFactory.create')
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
@@ -240,7 +241,7 @@ def test_search_explain_includes_score_details(
     assert details["threshold"] == 0.1
 
 
-@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.memory.entity_store.extract_entities', return_value=[])
 @patch('mem0.utils.factory.EmbedderFactory.create')
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
@@ -282,7 +283,7 @@ def test_a_stores_declared_keyword_scale_decides_the_curve(
     )
 
 
-@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.memory.entity_store.extract_entities', return_value=[])
 @patch('mem0.utils.factory.EmbedderFactory.create')
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
@@ -323,7 +324,7 @@ def test_a_result_reports_the_score_that_threshold_gates(
     )
 
 
-@patch('mem0.memory.main.extract_entities', return_value=[])
+@patch('mem0.memory.entity_store.extract_entities', return_value=[])
 @patch('mem0.utils.factory.EmbedderFactory.create')
 @patch('mem0.utils.factory.VectorStoreFactory.create')
 @patch('mem0.utils.factory.LlmFactory.create')
@@ -1661,7 +1662,7 @@ class TestAsyncDeleteAllEntityRace:
         from mem0.memory.main import AsyncMemory
         config = MemoryConfig()
         memory = AsyncMemory(config)
-        memory._entity_store = mock_entity_store
+        memory.entities._store = mock_entity_store
 
         await memory.delete_all(user_id="alice")
 

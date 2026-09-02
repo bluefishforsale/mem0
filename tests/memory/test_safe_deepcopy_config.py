@@ -10,8 +10,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from mem0.memory.main import _is_sensitive_field, _safe_deepcopy_config
-
+from mem0.memory.utils import _is_sensitive_field, _safe_deepcopy_config
 
 # ---------------------------------------------------------------------------
 # _is_sensitive_field tests
@@ -308,8 +307,9 @@ class TestSafeDeepcopyWithRealPydanticModel:
     """
 
     def test_real_pydantic_model_preserves_auth_objects(self):
-        from pydantic import BaseModel, Field
         from typing import Optional
+
+        from pydantic import BaseModel, Field
 
         class OpenSearchLikeConfig(BaseModel):
             host: str = "localhost"
