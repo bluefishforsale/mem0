@@ -30,11 +30,19 @@ VALID_CONFIG = {
 }
 
 # server/main.py builds a Memory at import time, so it only imports with a
-# mocked backend — and only at all when server/ is a root on sys.path and the
-# auth env is set. Skip the module rather than fail where that is not the case;
-# the SDK's own CI installs neither fastapi nor the server's dependencies.
-with patch("mem0.Memory.from_config", return_value=MagicMock()):
-    server_main = pytest.importorskip("main", reason="server/main.py not importable here")
+# mocked backend. Skip rather than fail where it will not import at all; the
+# SDK's CI installs the server's dependencies only via the server-tests extra.
+#
+# NOTE: AUTH_DISABLED must match what test_server_params.py sets, because
+# server/auth.py reads it once at import and both files share that one module
+# object. Whoever imports first decides the mode for both, so the two must
+# agree or the pair passes alone and fails together. test_server_auth.py wants
+# the opposite mode and gets away with it only because it skips without a
+# database — giving it one means teaching its `_load_app` to reload `auth`,
+# not just `main`.
+with patch.dict(os.environ, {"AUTH_DISABLED": "true"}):
+    with patch("mem0.Memory.from_config", return_value=MagicMock()):
+        server_main = pytest.importorskip("main", reason="server/main.py not importable here")
 
 
 @pytest.fixture
