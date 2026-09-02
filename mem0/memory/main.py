@@ -2739,7 +2739,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             self.vector_store.search,
             query=parsed_messages,
             vectors=query_embedding,
-            top_k=10,
+            top_k=self.config.add_context_top_k,
             filters=search_filters,
         )
 
