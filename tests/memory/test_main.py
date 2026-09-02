@@ -1570,3 +1570,37 @@ class TestRetrievalKnobsReachTheirSites:
 
         memory._entity_store.insert.assert_not_called()
         memory._entity_store.update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_batch_entity_link_honours_a_lowered_dedup_threshold(self, mocker):
+        _setup_mocks(mocker)
+        mocker.patch("mem0.memory.main.capture_event")
+        mocker.patch("mem0.memory.main.extract_entities_batch", return_value=[[("person", "alice")]])
+        memory = AsyncMemory(MemoryConfig(dedup_similarity_threshold=0.5))
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+
+        near_match = Mock(id="ent-1", score=0.6, payload={"linked_memory_ids": ["mem-0"]})
+        memory._entity_store = Mock()
+        memory._entity_store.list = Mock(return_value=[])  # no exact match, so the score gate decides
+        memory._entity_store.search_batch = Mock(return_value=[[near_match]])
+
+        memory.llm.generate_response.return_value = '{"memory": [{"text": "alice drinks tea"}]}'
+        memory.vector_store.search = Mock(return_value=[])
+        memory.vector_store.search_batch = Mock(return_value=[[Mock(id="other", score=0.1, payload={"data": "x"})]])
+        memory.vector_store.insert = Mock()
+
+        await memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "alice drinks tea"}],
+            metadata={},
+            effective_filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        memory._entity_store.insert.assert_not_called()
+        memory._entity_store.update.assert_called_once()

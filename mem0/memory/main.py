@@ -44,7 +44,6 @@ from mem0.utils.factory import (
 )
 from mem0.utils.lemmatization import lemmatize_for_bm25
 from mem0.utils.scoring import (
-    DEDUP_SIMILARITY_THRESHOLD,
     ENTITY_BOOST_WEIGHT,
     get_bm25_params,
     normalize_bm25,
@@ -2963,13 +2962,14 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
                     )
 
                     # 7d: Separate into inserts vs updates
+                    dedup_threshold = self.config.dedup_similarity_threshold
                     to_insert_vectors, to_insert_ids, to_insert_payloads = [], [], []
                     for j, key in enumerate(valid_keys):
                         entity_type, entity_text, memory_ids = global_entities[key]
                         matches = existing_matches[j] if j < len(existing_matches) else []
                         exact_match = exact_matches.get(key)
 
-                        semantic_match = matches[0] if matches and matches[0].score >= DEDUP_SIMILARITY_THRESHOLD else None
+                        semantic_match = matches[0] if matches and matches[0].score >= dedup_threshold else None
                         match = exact_match or semantic_match
                         if match:
                             payload = match.payload or {}
