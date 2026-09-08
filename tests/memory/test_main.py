@@ -1287,6 +1287,42 @@ class TestAddPipelineSemanticDedup:
         assert result == []
         mock_memory.vector_store.insert.assert_not_called()
 
+    def test_a_contradiction_survives_the_restatement_gate(self, mock_memory):
+        """A correction worded closely enough to look like a restatement was
+        dropped before anything asked whether it contradicted what was stored.
+
+        Found in production: "moved the scrub to Thursday, it now runs after the
+        rebalance" against a stored "runs Tuesday, before the rebalance" returned
+        `results: []`, left no history row, and said nothing. Reworded to sit
+        further away in embedding space the same correction landed and superseded
+        correctly, so the contradiction machinery was never the problem — the
+        near-duplicate gate in front of it was.
+
+        The extractor already reports this: the prompt asks it to name the ids a
+        new memory makes untrue, and `_supersede_contradicted` reads them. The
+        gate just ran first. A restatement and a contradiction are mutually
+        exclusive claims about the same pair, so the flag has to win.
+        """
+        existing = Mock(id="mem-old", score=0.9, payload={"data": "Scrub runs Tuesday, before the rebalance"})
+        mock_memory.vector_store.search = Mock(return_value=[existing])
+        mock_memory.vector_store.search_batch = Mock(
+            return_value=[[Mock(id="mem-old", score=0.96, payload={"data": "Scrub runs Tuesday, before the rebalance"})]]
+        )
+        mock_memory.vector_store.insert = Mock()
+        mock_memory.llm.generate_response.return_value = (
+            '{"memory": [{"text": "Scrub runs Thursday, after the rebalance", "contradicts": ["0"]}]}'
+        )
+
+        result = mock_memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "it moved to Thursday, after the rebalance now"}],
+            metadata={},
+            filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        assert len(result) == 1, "a flagged contradiction was dropped as a restatement"
+        mock_memory.vector_store.insert.assert_called_once()
+
     def test_related_but_distinct_memory_is_still_stored(self, mock_memory):
         result = self._add_one(mock_memory, nearest_score=0.88)
         assert len(result) == 1
@@ -1323,6 +1359,42 @@ class TestAddPipelineSemanticDedup:
 
         assert result == []
         memory.vector_store.insert.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_contradiction_survives_the_restatement_gate(self, mocker):
+        """The async twin of the production bug. The two add pipelines are still
+        hand-copied, so a fix to one is not a fix to the other.
+        """
+        _setup_mocks(mocker)
+        memory = AsyncMemory()
+        memory.custom_instructions = None
+        memory.api_version = "v1.1"
+        memory.db.get_last_messages = MagicMock(return_value=[])
+        memory.db.save_messages = MagicMock()
+        memory.db.batch_add_history = MagicMock()
+        memory.embedding_model = Mock()
+        memory.embedding_model.embed = Mock(return_value=[0.1] * 10)
+        memory.embedding_model.embed_batch = Mock(side_effect=lambda ts, *a, **kw: [[0.1] * 10 for _ in ts])
+        mocker.patch("mem0.memory.entity_store.extract_entities_batch", return_value=[[]])
+        mocker.patch("mem0.memory.main.capture_event")
+
+        stored = {"data": "Scrub runs Tuesday, before the rebalance"}
+        memory.llm.generate_response.return_value = (
+            '{"memory": [{"text": "Scrub runs Thursday, after the rebalance", "contradicts": ["0"]}]}'
+        )
+        memory.vector_store.search = Mock(return_value=[Mock(id="mem-old", score=0.9, payload=stored)])
+        memory.vector_store.search_batch = Mock(return_value=[[Mock(id="mem-old", score=0.96, payload=stored)]])
+        memory.vector_store.insert = Mock()
+
+        result = await memory._add_to_vector_store(
+            messages=[{"role": "user", "content": "it moved to Thursday, after the rebalance now"}],
+            metadata={},
+            effective_filters={"user_id": "u1"},
+            infer=True,
+        )
+
+        assert len(result) == 1, "a flagged contradiction was dropped as a restatement"
+        memory.vector_store.insert.assert_called_once()
 
     def test_a_failed_similarity_check_keeps_the_memory(self, mock_memory, caplog):
         """Losing a memory is worse than storing a duplicate, so fail open."""

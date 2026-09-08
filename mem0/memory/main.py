@@ -1018,7 +1018,16 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             if mem_hash in existing_hashes or mem_hash in seen_hashes:
                 logger.debug(f"Skipping duplicate memory (hash match): {text[:50]}")
                 continue
-            if text in restatements:
+
+            contradicts = mem.get("contradicts")
+            contradicts = contradicts if isinstance(contradicts, list) else []
+            # NOTE: a contradiction outranks the near-duplicate gate. The two are
+            # exclusive claims about the same pair, and a correction usually reads
+            # as a restatement of what it corrects: same subject, same wording,
+            # one detail reversed. Gating it on similarity silently dropped the
+            # correction and left the stale memory serving, with no history row
+            # and no error. Phase 6b retires the contradicted memory below.
+            if text in restatements and not contradicts:
                 continue
             seen_hashes.add(mem_hash)
 
@@ -1035,10 +1044,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             if mem.get("attributed_to"):
                 mem_metadata["attributed_to"] = mem["attributed_to"]
 
-            contradicts = mem.get("contradicts")
-            records.append(
-                (memory_id, text, embed_map[text], mem_metadata, contradicts if isinstance(contradicts, list) else [])
-            )
+            records.append((memory_id, text, embed_map[text], mem_metadata, contradicts))
 
         if not records:
             self.db.save_messages(messages, session_scope)
@@ -2179,7 +2185,16 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             if mem_hash in existing_hashes or mem_hash in seen_hashes:
                 logger.debug(f"Skipping duplicate memory (hash match, async): {text[:50]}")
                 continue
-            if text in restatements:
+
+            contradicts = mem.get("contradicts")
+            contradicts = contradicts if isinstance(contradicts, list) else []
+            # NOTE: a contradiction outranks the near-duplicate gate. The two are
+            # exclusive claims about the same pair, and a correction usually reads
+            # as a restatement of what it corrects: same subject, same wording,
+            # one detail reversed. Gating it on similarity silently dropped the
+            # correction and left the stale memory serving, with no history row
+            # and no error. Phase 6b retires the contradicted memory below.
+            if text in restatements and not contradicts:
                 continue
             seen_hashes.add(mem_hash)
 
@@ -2196,10 +2211,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             if mem.get("attributed_to"):
                 mem_metadata["attributed_to"] = mem["attributed_to"]
 
-            contradicts = mem.get("contradicts")
-            records.append(
-                (memory_id, text, embed_map[text], mem_metadata, contradicts if isinstance(contradicts, list) else [])
-            )
+            records.append((memory_id, text, embed_map[text], mem_metadata, contradicts))
 
         if not records:
             await asyncio.to_thread(self.db.save_messages, messages, session_scope)
