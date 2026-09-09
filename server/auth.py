@@ -12,12 +12,28 @@ from passlib.context import CryptContext
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-JWT_SECRET = os.environ.get("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 30
-ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
-AUTH_DISABLED = os.environ.get("AUTH_DISABLED", "").lower() in {"1", "true", "yes", "on"}
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+# NOTE: read at call time, not import. These were module constants, and since a
+# process holds one `auth` module every importer shared whichever value existed
+# when it first loaded. That is wrong for a reconfigure and it made the server
+# tests untestable: the first module to import `auth` fixed the auth mode for
+# the whole run, so reloading `main` could not change it.
+def jwt_secret() -> str:
+    return os.environ.get("JWT_SECRET", "")
+
+
+def admin_api_key() -> str:
+    return os.environ.get("ADMIN_API_KEY", "")
+
+
+def auth_disabled() -> bool:
+    return os.environ.get("AUTH_DISABLED", "").lower() in _TRUTHY
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -49,9 +65,10 @@ def verify_api_key_hash(plain_key: str, hashed: str) -> bool:
 
 
 def _get_secret() -> str:
-    if not JWT_SECRET:
+    secret = jwt_secret()
+    if not secret:
         raise HTTPException(status_code=500, detail="JWT_SECRET is not configured.")
-    return JWT_SECRET
+    return secret
 
 
 def create_access_token(user_id: str, role: str) -> str:
@@ -157,14 +174,15 @@ async def verify_auth(
             return _resolve_user_from_jwt(credentials.credentials, db)
 
     if x_api_key is not None:
-        if ADMIN_API_KEY and secrets.compare_digest(x_api_key, ADMIN_API_KEY):
+        configured_key = admin_api_key()
+        if configured_key and secrets.compare_digest(x_api_key, configured_key):
             _mark_auth_type(request, "admin_api_key")
             return None
         _mark_auth_type(request, "api_key")
         with SessionLocal() as db:
             return _resolve_user_from_api_key(x_api_key, db)
 
-    if AUTH_DISABLED:
+    if auth_disabled():
         _mark_auth_type(request, "disabled")
         return None
 

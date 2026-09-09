@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 import telemetry
-from auth import ADMIN_API_KEY, AUTH_DISABLED, JWT_SECRET, require_admin, verify_auth
+from auth import admin_api_key, auth_disabled, jwt_secret, require_admin, verify_auth
 from db import SessionLocal
 from dotenv import load_dotenv
 from errors import (
@@ -88,20 +88,23 @@ def _warn_if_unconfigured() -> None:
     )
 
 
-if not AUTH_DISABLED and not JWT_SECRET:
+# Startup posture, reported once. The values are read live per request in
+# auth.py; this only decides what to refuse to boot with and what to warn about.
+if not auth_disabled() and not jwt_secret():
     raise RuntimeError(
         "JWT_SECRET is required. Set it in .env (generate with `openssl rand -base64 48`) "
         "or set AUTH_DISABLED=true for local development only."
     )
 
-if AUTH_DISABLED:
+_startup_admin_key = admin_api_key()
+if auth_disabled():
     logging.warning("AUTH_DISABLED is enabled. Protected endpoints are open for local development only.")
-elif ADMIN_API_KEY and len(ADMIN_API_KEY) < MIN_KEY_LENGTH:
+elif _startup_admin_key and len(_startup_admin_key) < MIN_KEY_LENGTH:
     logging.warning(
         "ADMIN_API_KEY is shorter than %d characters - consider using a longer key for production.",
         MIN_KEY_LENGTH,
     )
-elif not ADMIN_API_KEY:
+elif not _startup_admin_key:
     _warn_if_unconfigured()
 
 telemetry.log_status()
