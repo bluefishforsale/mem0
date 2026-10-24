@@ -163,7 +163,9 @@ def score_and_rank(
     Threshold gates the semantic score BEFORE combining -- candidates
     below the threshold are excluded even if BM25/entity would boost them.
     Candidates flagged ``keyword_only`` have no measured semantic score and
-    are gated on their BM25 score instead.
+    are gated on their BM25 score instead. In the blend they are charged the
+    lowest semantic score in the pool, since ranking outside the pool means
+    they are no more similar than that.
 
     Args:
         semantic_results: Candidate memories from vector search.
@@ -179,6 +181,16 @@ def score_and_rank(
     # One clock read for the batch: every candidate in a result set must be aged
     # against the same instant.
     now = datetime.now(timezone.utc)
+
+    # NOTE: an upper bound, not an estimate. Renormalizing keyword-only rows
+    # over the other weights instead treated the unmeasured signal as being
+    # as good as their measured ones, and they leapfrogged pool hits they tied
+    # on every signal both sides had. Charging 0 instead caps a perfect term
+    # match at W_BM25 and buries it under any mediocre semantic hit.
+    pool_floor = min(
+        ((r.get("score") or 0.0) for r in semantic_results if not r.get("keyword_only")),
+        default=0.0,
+    )
 
     scored: List[Dict[str, Any]] = []
 
@@ -206,21 +218,13 @@ def score_and_rank(
         entity_signal = entity_boost / ENTITY_BOOST_WEIGHT
         recency = recency_score(result.get("payload"), recency_half_life_days, now)
 
+        blended_semantic = pool_floor if result.get("keyword_only") else semantic_score
         weighted = (
-            W_SEMANTIC * semantic_score
+            W_SEMANTIC * blended_semantic
             + W_BM25 * bm25_score
             + W_ENTITY * entity_signal
             + W_RECENCY * recency
         )
-        if result.get("keyword_only"):
-            # Renormalize over the signals this candidate could actually earn:
-            # everything but semantic, which was never measured for it.
-            # NOTE: the divisor comes from the candidate's own missing data, not
-            # from what the rest of the batch produced, so scores stay
-            # comparable. Charging it the semantic weight instead would cap a
-            # perfect term match at W_BM25 and bury it under any mediocre
-            # semantic hit.
-            weighted /= W_BM25 + W_ENTITY + W_RECENCY
 
         combined = min(weighted, 1.0)
 

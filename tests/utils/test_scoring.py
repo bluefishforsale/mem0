@@ -228,9 +228,26 @@ class TestKeywordOnlyCandidates:
         scored = score_and_rank(results, {"b": 0.99}, {}, threshold=0.1, top_k=10)
 
         assert [s["id"] for s in scored] == ["b", "a"]
-        assert scored[0]["score"] == pytest.approx(
-            W_BM25 * 0.99 / (W_BM25 + W_ENTITY + W_RECENCY)
-        )
+        assert scored[0]["score"] > W_BM25
+
+    def test_keyword_only_candidate_cannot_outrank_a_pool_hit_it_never_beats(self):
+        """Missing from the semantic pool means less similar than all of it.
+
+        Regression: renormalizing over the non-semantic weights scored the
+        unmeasured semantic signal as if it matched the candidate's others, so
+        on ocean a keyword-only row tying a pool hit on BM25 and entities
+        outranked it despite a measured cosine of 0.69 on the pool side.
+        """
+        results = [
+            {"id": "a", "score": 0.6, "payload": {}},
+            {"id": "c", "score": 0.4, "payload": {}},
+            {"id": "b", "score": 0.0, "keyword_only": True, "payload": {}},
+        ]
+        bm25 = {"a": 0.7, "b": 0.7}
+        entities = {"a": ENTITY_BOOST_WEIGHT, "b": ENTITY_BOOST_WEIGHT}
+        scored = score_and_rank(results, bm25, entities, threshold=0.1, top_k=10)
+
+        assert [s["id"] for s in scored].index("a") < [s["id"] for s in scored].index("b")
 
     def test_keyword_only_candidate_gated_on_its_own_bm25_score(self):
         results = [{"id": "b", "score": 0.0, "keyword_only": True, "payload": {"data": "mem b"}}]
