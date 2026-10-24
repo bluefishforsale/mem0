@@ -873,7 +873,7 @@ class TestEntityBoostParallelism:
 
         results_by_query = {
             "alice": [_make_match(0.9, ["mem-1"])],
-            "bob": [_make_match(0.6, ["mem-1", "mem-2"])],
+            "bob": [_make_match(0.8, ["mem-1", "mem-2"])],
         }
 
         def fake_search(query, vectors, top_k, filters):
@@ -888,9 +888,26 @@ class TestEntityBoostParallelism:
         )
 
         boost_alice = 0.9 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (0**2)))
-        boost_bob = 0.6 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (1**2)))
+        boost_bob = 0.8 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (1**2)))
         assert boosts["mem-1"] == pytest.approx(max(boost_alice, boost_bob))
         assert boosts["mem-2"] == pytest.approx(boost_bob)
+
+    def test_entity_match_in_the_noise_band_boosts_nothing(self, mock_memory):
+        """A near neighbour that is a different thing must not boost its memories.
+
+        Regression: the floor was 0.5, and every one of 200 nearest-neighbour
+        pairs sampled from ocean's entity store cleared it. Under nomic, short
+        templated entities sit around 0.68 ("PR #16" vs "PR #593", "Batch 2" vs
+        "Episode 2"), so a query naming any PR boosted every memory naming one.
+        """
+        mock_memory.embedding_model = Mock()
+        mock_memory.embedding_model.embed_batch = Mock(return_value=[[0.1, 0.2, 0.3]])
+        mock_memory.entities._store = Mock()
+        mock_memory.entities._store.search = Mock(return_value=[_make_match(0.69, ["mem-1"])])
+
+        boosts = mock_memory.entities.boosts_for([("other", "PR #16")], {"user_id": "u1"})
+
+        assert boosts == {}
 
     def test_sync_embed_batch_called_once(self, mock_memory):
         mock_memory.embedding_model = Mock()
@@ -914,7 +931,7 @@ class TestEntityBoostParallelism:
 
         results_by_query = {
             "alice": [_make_match(0.9, ["mem-1"])],
-            "bob": [_make_match(0.6, ["mem-1", "mem-2"])],
+            "bob": [_make_match(0.8, ["mem-1", "mem-2"])],
         }
 
         def fake_search(query, vectors, top_k, filters):
@@ -929,7 +946,7 @@ class TestEntityBoostParallelism:
         )
 
         boost_alice = 0.9 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (0**2)))
-        boost_bob = 0.6 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (1**2)))
+        boost_bob = 0.8 * ENTITY_BOOST_WEIGHT * (1.0 / (1.0 + 0.001 * (1**2)))
         assert boosts["mem-1"] == pytest.approx(max(boost_alice, boost_bob))
         assert boosts["mem-2"] == pytest.approx(boost_bob)
 
@@ -1001,7 +1018,7 @@ class TestEntityBoostParallelism:
             concurrent_count["peak"] = max(concurrent_count["peak"], concurrent_count["current"])
             time.sleep(0.2)
             concurrent_count["current"] -= 1
-            return [_make_match(0.7, [f"mem-{query}"])]
+            return [_make_match(0.8, [f"mem-{query}"])]
 
         mock_memory.entities._store = Mock()
         mock_memory.entities._store.search = Mock(side_effect=blocking_search)
@@ -1027,7 +1044,7 @@ class TestEntityBoostParallelism:
             concurrent_count["peak"] = max(concurrent_count["peak"], concurrent_count["current"])
             time.sleep(0.2)
             concurrent_count["current"] -= 1
-            return [_make_match(0.7, [f"mem-{query}"])]
+            return [_make_match(0.8, [f"mem-{query}"])]
 
         mock_async_memory.entities._store = Mock()
         mock_async_memory.entities._store.search = Mock(side_effect=blocking_search)

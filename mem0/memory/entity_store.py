@@ -26,7 +26,13 @@ logger = logging.getLogger(__name__)
 _SCOPE_KEYS = ("user_id", "agent_id", "run_id")
 
 # An entity match below this contributes no boost at all.
-_BOOST_FLOOR = 0.5
+#
+# NOTE: measured on ocean's entity store (nomic-embed, 768 dim), not guessed.
+# Spellings of the same entity sit at 0.86 and up, 0.70-0.85 mixes related with
+# unrelated, and below 0.70 is nearly all noise: short templated entities like
+# "PR #16" / "PR #593" land around 0.68. At 0.5 every sampled nearest neighbour
+# cleared the floor, so it filtered nothing.
+_BOOST_FLOOR = 0.75
 
 # Entity rows are small and a scope holds few of them, so one list() is cheaper
 # than paging. NOTE: a scope that ever exceeds this silently loses cleanup.
