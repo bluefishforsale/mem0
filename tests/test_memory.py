@@ -914,10 +914,15 @@ def test_add_infer_true_caches_embedding_on_llm_rewrite(mock_sqlite, mock_llm_fa
 
     memory.add("I like Python", user_id="test_user", infer=True)
 
-    # V3 pipeline: embed called once for search query (Phase 1),
-    # embed_batch called once for extracted memories (Phase 3)
+    # V3 pipeline: embed called once for search query (Phase 1), the extracted
+    # memory embedded once in Phase 3's embed_batch and never again.
+    # NOTE: count the memory's own embeds, not every embed_batch call. Entity
+    # linking batch-embeds entities too, but only when the spaCy model loads,
+    # so a raw call count passes in CI (no model) and fails on a dev machine.
     assert embedder.embed.call_count == 1
-    assert embedder.embed_batch.call_count == 1
+    memory_embeds = [c for c in embedder.embed_batch.call_args_list if c.args[0] == ["The user enjoys Python"]]
+    assert len(memory_embeds) == 1
+    assert not any(c.args[0] == "The user enjoys Python" for c in embedder.embed.call_args_list)
     mock_vector_store.insert.assert_called_once()
 
 
@@ -971,10 +976,15 @@ def test_update_infer_true_caches_embedding_on_llm_rewrite(mock_sqlite, mock_llm
 
     memory.add("I love Python now", user_id="test_user", infer=True)
 
-    # V3 pipeline: embed called once for search query (Phase 1),
-    # embed_batch called once for extracted memories (Phase 3)
+    # V3 pipeline: embed called once for search query (Phase 1), the extracted
+    # memory embedded once in Phase 3's embed_batch and never again.
+    # NOTE: count the memory's own embeds, not every embed_batch call. Entity
+    # linking batch-embeds entities too, but only when the spaCy model loads,
+    # so a raw call count passes in CI (no model) and fails on a dev machine.
     assert embedder.embed.call_count == 1
-    assert embedder.embed_batch.call_count == 1
+    memory_embeds = [c for c in embedder.embed_batch.call_args_list if c.args[0] == ["The user loves Python"]]
+    assert len(memory_embeds) == 1
+    assert not any(c.args[0] == "The user loves Python" for c in embedder.embed.call_args_list)
     mock_vector_store.insert.assert_called_once()
 
 
