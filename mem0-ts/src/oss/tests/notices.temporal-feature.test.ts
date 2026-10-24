@@ -37,6 +37,8 @@ jest.mock("../src/llms/openai", () => ({
 
 const TEMPORAL_COPY =
   "Temporal reasoning requires a Mem0 API key. Get one for free at https://app.mem0.ai";
+const PLAIN_TIMESTAMP_ERROR =
+  "The timestamp parameter is not supported by the OSS Memory SDK.";
 const PLAIN_REFERENCE_DATE_ERROR =
   "The referenceDate parameter is not supported by the OSS Memory SDK.";
 
@@ -59,34 +61,25 @@ function temporalPayload(overrides: Record<string, any> = {}) {
 
 function createFetchMock(options: {
   variant?: string;
-  payload?: unknown;
-  failFlags?: boolean;
-  flagEnabled?: boolean;
+  payload?: Record<string, any>;
+  failConfig?: boolean;
 }) {
   const calls: any[] = [];
+  const variantSplit = options.variant === "holdout" ? 0.0 : 1.0;
+  const payload = options.payload ?? temporalPayload();
   const fetchMock = jest.fn(async (url: string | URL, init?: RequestInit) => {
     const target = String(url);
 
-    if (target.includes("/flags")) {
-      if (options.failFlags) {
-        throw new Error("flag evaluation failed");
+    if (target.includes("raw.githubusercontent.com")) {
+      if (options.failConfig) {
+        throw new Error("config fetch failed");
       }
       return {
         ok: true,
         json: jest.fn().mockResolvedValue({
-          flags: {
-            "mem0-oss-notices": {
-              key: "mem0-oss-notices",
-              enabled: options.flagEnabled ?? true,
-              variant: options.variant ?? "displayed",
-              metadata: {
-                payload:
-                  options.payload === undefined
-                    ? JSON.stringify(temporalPayload())
-                    : options.payload,
-              },
-            },
-          },
+          version: 1,
+          variant_split: variantSplit,
+          ...payload,
         }),
       };
     }
@@ -176,7 +169,10 @@ describe("Node OSS temporal feature error notice", () => {
     jest.resetModules();
   });
 
-  it.each([["search", "referenceDate"]])(
+  it.each([
+    ["add", "timestamp"],
+    ["search", "referenceDate"],
+  ])(
     "raises CTA copy for displayed %s(%s) and emits displayed=true",
     async (triggerFunction, triggerParameter) => {
       const { fetchMock, calls } = createFetchMock({ variant: "displayed" });
@@ -219,7 +215,10 @@ describe("Node OSS temporal feature error notice", () => {
     },
   );
 
-  it.each([["search", "referenceDate"]])(
+  it.each([
+    ["add", "timestamp"],
+    ["search", "referenceDate"],
+  ])(
     "raises CTA copy for holdout %s(%s) and emits displayed=true",
     async (triggerFunction, triggerParameter) => {
       const { fetchMock, calls } = createFetchMock({ variant: "holdout" });
@@ -257,45 +256,20 @@ describe("Node OSS temporal feature error notice", () => {
     },
   );
 
-  it("uses plain error for unknown future variants and emits not_displayed", async () => {
-    const { fetchMock, calls } = createFetchMock({ variant: "silent" });
-    global.fetch = fetchMock as any;
-    const memory = await createMemory();
-
-    await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
-      }),
-    ).rejects.toThrow(PLAIN_REFERENCE_DATE_ERROR);
-
-    const notices = noticeEvents(calls);
-    expect(notices).toHaveLength(1);
-    expect(notices[0].properties).toEqual(
-      expect.objectContaining({
-        notice_id: "temporal_stub",
-        variant: "silent",
-        displayed: false,
-        bypass_reason: "not_displayed",
-        payload: TEMPORAL_COPY,
-      }),
-    );
-  });
-
   it("treats missing enabled as enabled for feature-error payloads", async () => {
     const payload = temporalPayload();
     delete (payload.notices.temporal_stub as Record<string, any>).enabled;
     const { fetchMock, calls } = createFetchMock({
       variant: "displayed",
-      payload: JSON.stringify(payload),
+      payload,
     });
     global.fetch = fetchMock as any;
     const memory = await createMemory();
 
     await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
+      memory.add("Temporal add", {
+        userId: "temporal-user",
+        timestamp: 1778112000,
       }),
     ).rejects.toThrow(TEMPORAL_COPY);
 
@@ -308,20 +282,20 @@ describe("Node OSS temporal feature error notice", () => {
     );
   });
 
-  it("uses referenceDate plain error for disabled payload and emits payload_disabled", async () => {
+  it("uses timestamp plain error for disabled payload and emits payload_disabled", async () => {
     const { fetchMock, calls } = createFetchMock({
       variant: "displayed",
-      payload: JSON.stringify(temporalPayload({ enabled: false })),
+      payload: temporalPayload({ enabled: false }),
     });
     global.fetch = fetchMock as any;
     const memory = await createMemory();
 
     await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
+      memory.add("Temporal add", {
+        userId: "temporal-user",
+        timestamp: 1778112000,
       }),
-    ).rejects.toThrow(PLAIN_REFERENCE_DATE_ERROR);
+    ).rejects.toThrow(PLAIN_TIMESTAMP_ERROR);
 
     const notices = noticeEvents(calls);
     expect(notices).toHaveLength(1);
@@ -332,24 +306,15 @@ describe("Node OSS temporal feature error notice", () => {
         bypass_reason: "payload_disabled",
         disabled_reason: "payload_disabled",
         notice_config_found: true,
-        trigger_function: "search",
-        trigger_parameter: "referenceDate",
+        trigger_function: "add",
+        trigger_parameter: "timestamp",
       }),
     );
   });
 
   it.each([
-    [
-      "missing config",
-      JSON.stringify({ notices: {} }),
-      "missing_notice_config",
-    ],
-    [
-      "missing copy",
-      JSON.stringify(temporalPayload({ copy: "" })),
-      "missing_copy",
-    ],
-    ["malformed payload", "{not-json", "missing_notice_config"],
+    ["missing config", { notices: {} }, "missing_notice_config"],
+    ["missing copy", temporalPayload({ copy: "" }), "missing_copy"],
   ])(
     "uses referenceDate plain error for %s",
     async (_label, payload, bypassReason) => {
@@ -381,37 +346,26 @@ describe("Node OSS temporal feature error notice", () => {
     },
   );
 
-  it("uses plain error and emits no event when the blunt flag is disabled", async () => {
-    const { fetchMock, calls } = createFetchMock({
-      variant: "displayed",
-      flagEnabled: false,
-    });
+  it("uses plain error when config fetch fails (bundled config fallback)", async () => {
+    const { fetchMock, calls } = createFetchMock({ failConfig: true });
     global.fetch = fetchMock as any;
     const memory = await createMemory();
 
     await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
+      memory.add("Temporal add", {
+        userId: "temporal-user",
+        timestamp: 1778112000,
       }),
-    ).rejects.toThrow(PLAIN_REFERENCE_DATE_ERROR);
+    ).rejects.toThrow(PLAIN_TIMESTAMP_ERROR);
 
-    expect(noticeEvents(calls)).toHaveLength(0);
-  });
-
-  it("uses plain error and emits no event when PostHog fails", async () => {
-    const { fetchMock, calls } = createFetchMock({ failFlags: true });
-    global.fetch = fetchMock as any;
-    const memory = await createMemory();
-
-    await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
+    const notices = noticeEvents(calls);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].properties).toEqual(
+      expect.objectContaining({
+        notice_id: "temporal_stub",
+        displayed: false,
       }),
-    ).rejects.toThrow(PLAIN_REFERENCE_DATE_ERROR);
-
-    expect(noticeEvents(calls)).toHaveLength(0);
+    );
   });
 
   it("uses plain error and skips flag evaluation when telemetry is off", async () => {
@@ -423,14 +377,39 @@ describe("Node OSS temporal feature error notice", () => {
     const memory = await createMemory();
 
     await expect(
-      memory.search("Temporal search", {
-        filters: { user_id: "temporal-user" },
-        referenceDate: "2026-05-06",
+      memory.add("Temporal add", {
+        userId: "temporal-user",
+        timestamp: 1778112000,
       }),
-    ).rejects.toThrow(PLAIN_REFERENCE_DATE_ERROR);
+    ).rejects.toThrow(PLAIN_TIMESTAMP_ERROR);
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(noticeEvents(calls)).toHaveLength(0);
+  });
+
+  it("throws before add validation, normal telemetry, embeddings, and first-run", async () => {
+    const { fetchMock, calls } = createFetchMock({ variant: "displayed" });
+    global.fetch = fetchMock as any;
+    const memory = await createMemory();
+    const addToVectorStoreSpy = jest.spyOn(memory as any, "addToVectorStore");
+
+    await expect(
+      memory.add(
+        undefined as any,
+        {
+          timestamp: 1778112000,
+        } as any,
+      ),
+    ).rejects.toThrow(TEMPORAL_COPY);
+
+    expect(mockEmbed).not.toHaveBeenCalled();
+    expect(addToVectorStoreSpy).not.toHaveBeenCalled();
+    expect(calls.map((call) => call.event)).not.toContain("mem0.add");
+    expect(
+      noticeEvents(calls).some(
+        (call) => call.properties.notice_id === "first_run",
+      ),
+    ).toBe(false);
   });
 
   it("throws before search validation, normal telemetry, embeddings, and first-run", async () => {

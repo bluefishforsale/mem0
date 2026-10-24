@@ -15,7 +15,7 @@ This is a polyglot monorepo and **every package sets its own rules**. Read the `
 - Commit `.env` files, API keys, or credentials.
 - Skip pre-commit hooks.
 - Port a change from `mem0/` into `mem0-ts/`. The TypeScript SDK is unmaintained in this fork and has drifted deliberately. See [`mem0-ts/AGENTS.md`](mem0-ts/AGENTS.md).
-- Use npm or yarn in TypeScript packages. This repo is pnpm-only (Bun in `.opencode-plugin/`).
+- Use npm or yarn in TypeScript packages. This repo is pnpm-only (Bun in `integrations/opencode-plugin/`).
 - Use `require()` in TypeScript. ES module `import` syntax only.
 - Mix up linter configs. Root Python is ruff at line length **120**, `cli/python/` is ruff at **100**, `cli/node/` is Biome, `mem0-ts/` is Prettier, `integrations/vercel-ai-sdk/` is ESLint.
 - Add Python dependencies to the core `dependencies` list in `pyproject.toml`. Use an optional group.
