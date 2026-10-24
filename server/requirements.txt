@@ -7,7 +7,7 @@ python-dotenv==1.2.2
 # [binary] ships libpq inside the wheel. Plain psycopg needs a system libpq,
 # which python:3.12-slim does not have, so the image builds fine and then dies
 # on the first import with "no pq wrapper available".
-psycopg[binary]>=3.2.8
+psycopg[binary]>=3.2.8,<4.0.0
 psycopg-pool>=3.2.6,<4.0.0
 
 # Bundled LLM/embedder providers. Extend by adding the provider's package
