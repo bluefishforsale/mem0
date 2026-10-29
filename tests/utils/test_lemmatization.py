@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 
@@ -7,7 +9,11 @@ def _ensure_spacy():
     try:
         import spacy
         spacy.load("en_core_web_sm")
-    except Exception:
+    except Exception as e:
+        # NOTE: CI sets this so a missing model fails the run. A skip here kept
+        # CI green for months while every test in this file never ran.
+        if os.environ.get("MEM0_REQUIRE_SPACY"):
+            pytest.fail(f"MEM0_REQUIRE_SPACY is set but en_core_web_sm did not load: {e}")
         pytest.skip("spaCy en_core_web_sm model not available")
 
 
