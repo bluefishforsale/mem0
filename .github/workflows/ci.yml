@@ -108,11 +108,19 @@ jobs:
         if: needs.check_changes.outputs.mem0_changed == 'true' && steps.cached-hatch-dependencies.outputs.cache-hit != 'true'
         run: |
           pip install --upgrade pip
-          pip install -e ".[test,server-tests,graph,vector_stores,llms,extras]"
+          pip install -e ".[test,server-tests,graph,vector_stores,llms,extras,nlp]"
           pip install ruff==0.16.0
+      # Production loads en_core_web_sm for entity extraction and BM25
+      # lemmatization. Without it both silently fall back, and the tests that
+      # cover them skip, so CI was exercising a pipeline ocean never runs.
+      - name: Install spaCy model
+        if: needs.check_changes.outputs.mem0_changed == 'true'
+        run: python -m spacy download en_core_web_sm
       - name: Run Linting
         if: needs.check_changes.outputs.mem0_changed == 'true'
         run: make lint
       - name: Run tests and generate coverage report
         if: needs.check_changes.outputs.mem0_changed == 'true'
+        env:
+          MEM0_REQUIRE_SPACY: "1"
         run: make test
