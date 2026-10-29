@@ -72,6 +72,23 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+    # The quality gate (tests/quality/) runs search against real pgvector,
+    # pinned to the image production runs, because keyword scoring is
+    # store-specific and the ranking bugs it guards against only showed there.
+    services:
+      pgvector:
+        image: ankane/pgvector:v0.5.1
+        env:
+          POSTGRES_USER: mem0
+          POSTGRES_PASSWORD: mem0
+          POSTGRES_DB: mem0
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mem0"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Skip — no relevant changes
         if: needs.check_changes.outputs.mem0_changed != 'true'
@@ -123,4 +140,6 @@ jobs:
         if: needs.check_changes.outputs.mem0_changed == 'true'
         env:
           MEM0_REQUIRE_SPACY: "1"
+          MEM0_QUALITY_PG: postgresql://mem0:mem0@localhost:5432/mem0
+          MEM0_REQUIRE_QUALITY: "1"
         run: make test
