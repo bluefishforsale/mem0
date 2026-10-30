@@ -1,0 +1,91 @@
+# Throwaway stack for the nightly LOCOMO benchmark, built from the commit under
+# test. Shaped like ocean's mem0 (same pgvector image, local nomic embeddings,
+# gpt-4o-mini extraction) so the numbers describe what production would do.
+#
+# NOTE: no bind mounts and no published ports. The homelab runners drive the
+# host's Docker daemon through its socket, so a bind path would resolve on the
+# host, not in the runner's checkout. Files reach containers through build
+# contexts; results come back through `docker cp`. See run.sh.
+
+services:
+  postgres:
+    build:
+      context: ../../..
+      dockerfile: tests/quality/nightly/postgres.Dockerfile
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: nightly
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.40.4
+    hostname: ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: "-1"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  mem0:
+    build:
+      context: ../../..
+      dockerfile: server/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: nightly
+      POSTGRES_COLLECTION_NAME: mem0_local
+      APP_DB_NAME: mem0_app
+      OPENAI_API_KEY: sk-local
+      OPENAI_BASE_URL: http://ollama:11434/v1
+      MEM0_DEFAULT_EMBEDDER_MODEL: nomic-embed-homelab
+      MEM0_EMBEDDING_DIMS: "768"
+      MEM0_DEFAULT_LLM_MODEL: gpt-4o-mini
+      MEM0_LLM_BASE_URL: https://api.openai.com/v1
+      MEM0_LLM_API_KEY: ${EXTRACTION_OPENAI_API_KEY:?set EXTRACTION_OPENAI_API_KEY}
+      # The benchmark's OSS client sends no credentials. Safe only because
+      # nothing outside this compose network can reach the port.
+      AUTH_DISABLED: "true"
+      MEM0_TELEMETRY: "false"
+      # The image has no /app/history (ocean mounts one) and the server dies
+      # at startup without the directory.
+      HISTORY_DB_PATH: /tmp/history.db
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  bench:
+    profiles: ["bench"]
+    build:
+      context: ../../..
+      dockerfile: tests/quality/nightly/bench.Dockerfile
+    depends_on:
+      mem0:
+        condition: service_healthy
+    environment:
+      # Answerer and judge: an OpenAI-compatible endpoint (ocean's llama.cpp).
+      # Extraction never sees these; it runs inside the mem0 container.
+      OPENAI_BASE_URL: ${JUDGE_BASE_URL:?set JUDGE_BASE_URL}
+      OPENAI_API_KEY: ${JUDGE_API_KEY:?set JUDGE_API_KEY}
+      JUDGE_MODEL: ${JUDGE_MODEL:-qwen3-coder-30b}
+      CONVERSATIONS: ${CONVERSATIONS:-0,1}
+      MAX_QUESTIONS: ${MAX_QUESTIONS:-}
+      PUSHGATEWAY_URL: ${PUSHGATEWAY_URL:-}
+      COMMIT_SHA: ${COMMIT_SHA:-unknown}
+      PG_DSN: postgresql://postgres:nightly@postgres:5432/postgres
