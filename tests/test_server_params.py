@@ -194,6 +194,24 @@ class TestAddInfer:
         assert "infer" not in kwargs
 
 
+class TestAddTimestamp:
+    def test_timestamp_forwarded(self, client, mock_memory):
+        """The REST add must carry when a conversation happened.
+
+        Regression: MemoryCreate had no timestamp field, so pydantic dropped it
+        silently and an imported transcript (LOCOMO sends epoch seconds per
+        session) was stored as if every session happened today.
+        """
+        resp = client.post("/memories", json={
+            "messages": [{"role": "user", "content": "I went to Paris last week"}],
+            "user_id": "u1",
+            "timestamp": 1684886400,
+        })
+        assert resp.status_code == 200
+        _, kwargs = mock_memory.add.call_args
+        assert kwargs["timestamp"] == 1684886400
+
+
 # ===========================================================================
 # MemoryCreate: memory_type parameter
 # ===========================================================================

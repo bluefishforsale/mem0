@@ -318,9 +318,9 @@ def _normalize_expiration_date(value: Any) -> Optional[str]:
 def _normalize_observation_timestamp(value: Any) -> Optional[str]:
     """Normalize `add(timestamp=...)` to an ISO-8601 UTC string.
 
-    A bare date means midnight UTC on that day. This is when the conversation
-    happened, which is what relative references in it resolve against and what
-    the memory's age is measured from.
+    A bare date means midnight UTC on that day, and a number is Unix epoch
+    seconds. This is when the conversation happened, which is what relative
+    references in it resolve against and what the memory's age is measured from.
     """
     if value is None:
         return None
@@ -328,13 +328,15 @@ def _normalize_observation_timestamp(value: Any) -> Optional[str]:
         parsed = value
     elif isinstance(value, date):
         parsed = datetime.combine(value, datetime.min.time())
+    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+        parsed = datetime.fromtimestamp(value, tz=timezone.utc)
     elif isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value)
         except ValueError as exc:
-            raise ValueError("timestamp must be an ISO-8601 date or datetime, e.g. '2023-05-24'.") from exc
+            raise ValueError("timestamp must be an ISO-8601 date or datetime, e.g. '2023-05-24', or Unix epoch seconds.") from exc
     else:
-        raise ValueError("timestamp must be an ISO-8601 date or datetime, e.g. '2023-05-24'.")
+        raise ValueError("timestamp must be an ISO-8601 date or datetime, e.g. '2023-05-24', or Unix epoch seconds.")
 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
@@ -786,7 +788,7 @@ class Memory(_SharedMemoryLogic, MemoryBase):
             run_id (str, optional): ID of the run creating the memory. Defaults to None.
             metadata (dict, optional): Metadata to store with the memory. Defaults to None.
             timestamp (Any, optional): When the conversation actually happened, as an
-                ISO-8601 date or datetime (e.g. "2023-05-24"). Relative references in the
+                ISO-8601 date or datetime (e.g. "2023-05-24") or Unix epoch seconds. Relative references in the
                 messages are grounded against it, and the resulting memories carry it as
                 their created_at, so recency reflects the event rather than the import.
                 Defaults to now.
@@ -1985,7 +1987,7 @@ class AsyncMemory(_SharedMemoryLogic, MemoryBase):
             run_id (str, optional): ID of the run creating the memory. Defaults to None.
             metadata (dict, optional): Metadata to store with the memory. Defaults to None.
             timestamp (Any, optional): When the conversation actually happened, as an
-                ISO-8601 date or datetime (e.g. "2023-05-24"). Relative references in the
+                ISO-8601 date or datetime (e.g. "2023-05-24") or Unix epoch seconds. Relative references in the
                 messages are grounded against it, and the resulting memories carry it as
                 their created_at, so recency reflects the event rather than the import.
                 Defaults to now.
