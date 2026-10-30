@@ -1,0 +1,9 @@
+{
+  "recall@5": 0.9726,
+  "mrr": 0.8881,
+  "ndcg@10": 0.9036,
+  "context_tokens_mean": 137.1717,
+  "context_tokens_p95": 174.5,
+  "negative_context_tokens_mean": 56.4,
+  "add_prompt_tokens_mean": 8504.6
+}

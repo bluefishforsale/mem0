@@ -1,0 +1,2887 @@
+{
+  "user_id": "quality-gate",
+  "memories": [
+    {
+      "id": "m001",
+      "age_days": 120,
+      "text": "ocean is the main Docker host and runs the mem0, Plex and Grafana containers."
+    },
+    {
+      "id": "m002",
+      "age_days": 200,
+      "text": "node006 is a Proxmox node with 128 GB of RAM and two NVMe drives."
+    },
+    {
+      "id": "m003",
+      "age_days": 90,
+      "text": "nas01 stores media on a ZFS pool named data01, laid out as RAIDZ2 across eight 16 TB drives."
+    },
+    {
+      "id": "m004",
+      "age_days": 15,
+      "text": "Two drives in the data01 pool, sdh and sdi, are throwing SMART errors and need replacing."
+    },
+    {
+      "id": "m005",
+      "age_days": 300,
+      "text": "The homelab DHCP server is Kea, running on the router VM."
+    },
+    {
+      "id": "m006",
+      "age_days": 300,
+      "text": "Unbound on the pihole box resolves DNS for the homelab and forwards to Quad9."
+    },
+    {
+      "id": "m007",
+      "age_days": 60,
+      "text": "Cloudflare DDNS updates home.terrac.com every five minutes from a cron job on ocean."
+    },
+    {
+      "id": "m008",
+      "age_days": 10,
+      "text": "The Cloudflare DDNS API token was rotated after it leaked in a public CI log."
+    },
+    {
+      "id": "m009",
+      "age_days": 45,
+      "text": "gh-runner-01 hosts four ephemeral self-hosted GitHub Actions runners for the homelab repo."
+    },
+    {
+      "id": "m010",
+      "age_days": 30,
+      "text": "Homelab deploys are fully CI-mediated; ansible-playbook never runs from the laptop."
+    },
+    {
+      "id": "m011",
+      "age_days": 150,
+      "text": "Grafana dashboards live on ocean at port 3000 behind the nginx reverse proxy."
+    },
+    {
+      "id": "m012",
+      "age_days": 150,
+      "text": "Prometheus scrapes node exporters on every host every 30 seconds."
+    },
+    {
+      "id": "m013",
+      "age_days": 100,
+      "text": "Loki keeps container logs for 14 days."
+    },
+    {
+      "id": "m014",
+      "age_days": 20,
+      "text": "Loki retention was raised from 14 days to 30 days to debug the mem0 restatement bug."
+    },
+    {
+      "id": "m015",
+      "age_days": 250,
+      "text": "The UPS in the rack is an APC SMT1500 that gives about 25 minutes of runtime."
+    },
+    {
+      "id": "m016",
+      "age_days": 80,
+      "text": "Vaultwarden runs on node005 and is backed up nightly to nas01."
+    },
+    {
+      "id": "m017",
+      "age_days": 400,
+      "text": "Home Assistant controls the office lights and the cat feeder schedule."
+    },
+    {
+      "id": "m018",
+      "age_days": 35,
+      "text": "The nginx reverse proxy terminates TLS with a wildcard certificate from Let's Encrypt."
+    },
+    {
+      "id": "m019",
+      "age_days": 5,
+      "text": "ocean ran out of disk on /var/lib/docker, so a nightly image prune timer was added."
+    },
+    {
+      "id": "m020",
+      "age_days": 70,
+      "text": "mem0 on ocean stores vectors in pgvector in the mem0-postgres container and gets nomic embeddings from mem0-ollama."
+    },
+    {
+      "id": "m021",
+      "age_days": 70,
+      "text": "mem0 fact extraction uses a frontier model while embeddings stay local at 768 dimensions."
+    },
+    {
+      "id": "m022",
+      "age_days": 12,
+      "text": "The mem0 recall hook searches with a threshold of 0.45 and a limit of 10 results."
+    },
+    {
+      "id": "m023",
+      "age_days": 200,
+      "text": "IoT devices live on VLAN 30, which cannot reach the server VLAN."
+    },
+    {
+      "id": "m024",
+      "age_days": 180,
+      "text": "The office switch is a 10 GbE MikroTik CRS309."
+    },
+    {
+      "id": "m025",
+      "age_days": 25,
+      "text": "node005 kernel panics were traced to a failing stick of RAM in slot B2."
+    },
+    {
+      "id": "m026",
+      "age_days": 300,
+      "text": "Backups go to Backblaze B2 with restic every night at 2am."
+    },
+    {
+      "id": "m027",
+      "age_days": 3,
+      "text": "Restic backups moved from 2am to 4am so they stop overlapping the Tdarr transcode window."
+    },
+    {
+      "id": "m028",
+      "age_days": 140,
+      "text": "Tailscale connects the laptop to the homelab when travelling."
+    },
+    {
+      "id": "m029",
+      "age_days": 90,
+      "text": "SSH to every host uses ed25519 keys and password login is disabled."
+    },
+    {
+      "id": "m030",
+      "age_days": 55,
+      "text": "The ansible vault password file is ~/.ansible_vault_pass with mode 600."
+    },
+    {
+      "id": "m031",
+      "age_days": 220,
+      "text": "Plex runs on ocean with hardware transcoding on an Intel Arc A380."
+    },
+    {
+      "id": "m032",
+      "age_days": 15,
+      "text": "The Plex token leaked in a screenshot and was rotated."
+    },
+    {
+      "id": "m033",
+      "age_days": 160,
+      "text": "Tdarr transcodes the library to HEVC overnight between midnight and 4am."
+    },
+    {
+      "id": "m034",
+      "age_days": 160,
+      "text": "Sonarr manages TV shows and Radarr manages movies, and both send downloads to NZBGet."
+    },
+    {
+      "id": "m035",
+      "age_days": 100,
+      "text": "Prowlarr syncs indexers to Sonarr and Radarr."
+    },
+    {
+      "id": "m036",
+      "age_days": 60,
+      "text": "NZBGet downloads to /mnt/data01/downloads and the arr apps hardlink completed files from there."
+    },
+    {
+      "id": "m037",
+      "age_days": 40,
+      "text": "The nzbget exporter was added to Prometheus to alert on stalled downloads."
+    },
+    {
+      "id": "m038",
+      "age_days": 300,
+      "text": "Plex Meta Manager rebuilds collections every Sunday."
+    },
+    {
+      "id": "m039",
+      "age_days": 25,
+      "text": "Jellyfin was tried as a Plex replacement and dropped because of subtitle problems."
+    },
+    {
+      "id": "m040",
+      "age_days": 8,
+      "text": "Tdarr GPU workers were cut from three to one because transcodes were starving Plex."
+    },
+    {
+      "id": "m041",
+      "age_days": 365,
+      "text": "At work I run production Kafka with 12 brokers across three availability zones."
+    },
+    {
+      "id": "m042",
+      "age_days": 200,
+      "text": "The production Kafka cluster runs in KRaft mode, not ZooKeeper."
+    },
+    {
+      "id": "m043",
+      "age_days": 150,
+      "text": "Kafka partition rebalances run every second Tuesday, before the weekly release."
+    },
+    {
+      "id": "m044",
+      "age_days": 6,
+      "text": "Kafka partition rebalances moved to every second Thursday, after the weekly release."
+    },
+    {
+      "id": "m045",
+      "age_days": 120,
+      "text": "Kafka topic retention is seven days by default and 30 days for the audit topics."
+    },
+    {
+      "id": "m046",
+      "age_days": 90,
+      "text": "Consumer lag alerts fire when lag passes 50,000 messages for ten minutes."
+    },
+    {
+      "id": "m047",
+      "age_days": 45,
+      "text": "The Kafka brokers run on i4i instances because of their local NVMe."
+    },
+    {
+      "id": "m048",
+      "age_days": 30,
+      "text": "A Kafka broker disk filled up in July because tiered storage was misconfigured."
+    },
+    {
+      "id": "m049",
+      "age_days": 200,
+      "text": "Schema Registry enforces backward compatibility on every topic."
+    },
+    {
+      "id": "m050",
+      "age_days": 18,
+      "text": "I'm on call for the Kafka platform every fourth week."
+    },
+    {
+      "id": "m051",
+      "age_days": 300,
+      "text": "I make techno on an Akai MPC One, usually around 132 BPM."
+    },
+    {
+      "id": "m052",
+      "age_days": 200,
+      "text": "The Elektron Digitakt handles drums and the MPC One sequences everything."
+    },
+    {
+      "id": "m053",
+      "age_days": 100,
+      "text": "Tracks get mixed down in Ableton Live before mastering."
+    },
+    {
+      "id": "m054",
+      "age_days": 50,
+      "text": "I'm working on an EP of four tracks called Ocean Floor."
+    },
+    {
+      "id": "m055",
+      "age_days": 20,
+      "text": "The Ocean Floor EP was cut to three tracks; the fourth moved to a later release."
+    },
+    {
+      "id": "m056",
+      "age_days": 150,
+      "text": "The studio monitors are Adam A7X speakers on isolation pads."
+    },
+    {
+      "id": "m057",
+      "age_days": 80,
+      "text": "MPC One projects are backed up to nas01 after every session."
+    },
+    {
+      "id": "m058",
+      "age_days": 12,
+      "text": "MPC firmware 3.4 broke MIDI clock sync with the Digitakt."
+    },
+    {
+      "id": "m059",
+      "age_days": 400,
+      "text": "I prefer hardware sequencing over arranging in a DAW."
+    },
+    {
+      "id": "m060",
+      "age_days": 30,
+      "text": "I'm playing a live techno set at a warehouse party next month."
+    },
+    {
+      "id": "m061",
+      "age_days": 500,
+      "text": "I have six cats: Miso, Tofu, Biscuit, Pepper, Mochi and Ziggy."
+    },
+    {
+      "id": "m062",
+      "age_days": 120,
+      "text": "Biscuit only eats salmon pate."
+    },
+    {
+      "id": "m063",
+      "age_days": 60,
+      "text": "Pepper is on thyroid medication, half a tablet twice a day."
+    },
+    {
+      "id": "m064",
+      "age_days": 10,
+      "text": "Pepper's thyroid dose went up to a full tablet twice a day after the last blood test."
+    },
+    {
+      "id": "m065",
+      "age_days": 200,
+      "text": "Ziggy is the youngest cat and knocks things off desks."
+    },
+    {
+      "id": "m066",
+      "age_days": 300,
+      "text": "Mochi has a sensitive stomach and needs hydrolysed protein food."
+    },
+    {
+      "id": "m067",
+      "age_days": 90,
+      "text": "The cats' vet is Dr. Alvarez at Riverside Animal Clinic."
+    },
+    {
+      "id": "m068",
+      "age_days": 40,
+      "text": "Tofu had a dental cleaning and two teeth removed."
+    },
+    {
+      "id": "m069",
+      "age_days": 150,
+      "text": "The automatic cat feeder runs at 7am and 6pm."
+    },
+    {
+      "id": "m070",
+      "age_days": 25,
+      "text": "Miso is the oldest cat at 14 and has early kidney disease."
+    },
+    {
+      "id": "m071",
+      "age_days": 200,
+      "text": "Cat food is ordered monthly in bulk from Chewy."
+    },
+    {
+      "id": "m072",
+      "age_days": 75,
+      "text": "There are seven litter boxes and they get scooped twice a day."
+    },
+    {
+      "id": "m073",
+      "age_days": 60,
+      "text": "Every change gets its own git worktree and branch, and one PR each."
+    },
+    {
+      "id": "m074",
+      "age_days": 60,
+      "text": "PRs only ever target my own repos, never a fork's upstream."
+    },
+    {
+      "id": "m075",
+      "age_days": 40,
+      "text": "Commits carry only my authorship, with no AI co-author trailers."
+    },
+    {
+      "id": "m076",
+      "age_days": 30,
+      "text": "PR #16 made the mem0 server read its auth config per request instead of once at import."
+    },
+    {
+      "id": "m077",
+      "age_days": 30,
+      "text": "PR #15 fixed mem0 dropping corrections as near-duplicates."
+    },
+    {
+      "id": "m078",
+      "age_days": 20,
+      "text": "PR #593 added the Prometheus scrape config for the nzbget exporter."
+    },
+    {
+      "id": "m079",
+      "age_days": 20,
+      "text": "PR #595 added the deploy detector to the homelab CI."
+    },
+    {
+      "id": "m080",
+      "age_days": 25,
+      "text": "PR #422 had a Kea DHCP fix that was salvaged into its own two-file PR."
+    },
+    {
+      "id": "m081",
+      "age_days": 22,
+      "text": "PR #390 fixed the homelab CI and PR #389 removed unused services."
+    },
+    {
+      "id": "m082",
+      "age_days": 18,
+      "text": "PR #18 stopped keyword-only search results outranking stronger semantic matches in mem0."
+    },
+    {
+      "id": "m083",
+      "age_days": 15,
+      "text": "PR #19 raised the mem0 entity boost floor from 0.5 to 0.75."
+    },
+    {
+      "id": "m084",
+      "age_days": 50,
+      "text": "The homelab repo is the master configuration for the whole fleet."
+    },
+    {
+      "id": "m085",
+      "age_days": 100,
+      "text": "I prefer rg over grep and fd over find."
+    },
+    {
+      "id": "m086",
+      "age_days": 70,
+      "text": "Homelab deploys auto-merge on green CI and never auto-rollback."
+    },
+    {
+      "id": "m087",
+      "age_days": 35,
+      "text": "Reminders and scheduled work stay local, never in cloud schedulers."
+    },
+    {
+      "id": "m088",
+      "age_days": 90,
+      "text": "I write without em dashes."
+    },
+    {
+      "id": "m089",
+      "age_days": 45,
+      "text": "The TypeScript SDK is unmaintained in my mem0 fork."
+    },
+    {
+      "id": "m090",
+      "age_days": 10,
+      "text": "The mem0 fork merges upstream mem0ai/mem0 regularly to stay current with fixes."
+    },
+    {
+      "id": "m091",
+      "age_days": 365,
+      "text": "I live in Portland and bike to the office."
+    },
+    {
+      "id": "m092",
+      "age_days": 200,
+      "text": "I drink pour-over coffee from a Chemex every morning."
+    },
+    {
+      "id": "m093",
+      "age_days": 150,
+      "text": "I'm vegetarian and cook a lot of Thai food."
+    },
+    {
+      "id": "m094",
+      "age_days": 300,
+      "text": "I have ADD and keep a running todo list to stay on track."
+    },
+    {
+      "id": "m095",
+      "age_days": 60,
+      "text": "I'm learning Rust by rewriting a log shipper."
+    },
+    {
+      "id": "m096",
+      "age_days": 120,
+      "text": "My car is a 2019 Subaru Outback, due for its 60,000 mile service."
+    },
+    {
+      "id": "m097",
+      "age_days": 5,
+      "text": "The Outback's 60,000 mile service is done and the brakes were replaced."
+    },
+    {
+      "id": "m098",
+      "age_days": 80,
+      "text": "My standing desk is set to 112 cm when standing."
+    },
+    {
+      "id": "m099",
+      "age_days": 200,
+      "text": "I read science fiction, most recently Ada Palmer's Terra Ignota series."
+    },
+    {
+      "id": "m100",
+      "age_days": 30,
+      "text": "The garden has tomatoes, basil and far too much mint."
+    },
+    {
+      "id": "m101",
+      "age_days": 40,
+      "text": "PR #160 bumped the Grafana image to 11.2."
+    },
+    {
+      "id": "m102",
+      "age_days": 40,
+      "text": "PR #61 fixed a typo in the homelab README."
+    },
+    {
+      "id": "m103",
+      "age_days": 33,
+      "text": "PR #1600 is an open draft for the Loki storage migration."
+    },
+    {
+      "id": "m104",
+      "age_days": 28,
+      "text": "Issue #593 tracks flaky SMART alerts on nas01."
+    },
+    {
+      "id": "m105",
+      "age_days": 90,
+      "text": "Grafana was on 10.4 before the 11.2 upgrade."
+    },
+    {
+      "id": "m106",
+      "age_days": 60,
+      "text": "node005 runs Proxmox 8.1."
+    },
+    {
+      "id": "m107",
+      "age_days": 14,
+      "text": "node006 was upgraded to Proxmox 8.2."
+    },
+    {
+      "id": "m108",
+      "age_days": 50,
+      "text": "Port 8888 on the laptop is the SSH tunnel to the mem0 API on ocean."
+    },
+    {
+      "id": "m109",
+      "age_days": 50,
+      "text": "Port 8080 on ocean is the Tdarr web UI."
+    },
+    {
+      "id": "m110",
+      "age_days": 50,
+      "text": "Port 9090 on ocean is Prometheus."
+    },
+    {
+      "id": "m111",
+      "age_days": 100,
+      "text": "The rack has a 24-port patch panel and every cable is labelled with a Brother P-touch."
+    },
+    {
+      "id": "m112",
+      "age_days": 75,
+      "text": "Power draw for the whole rack averages 420 watts."
+    },
+    {
+      "id": "m113",
+      "age_days": 20,
+      "text": "Electricity is the biggest homelab cost, about 45 dollars a month."
+    },
+    {
+      "id": "m114",
+      "age_days": 130,
+      "text": "The homelab runbook lives in docs/operations in the homelab repo."
+    },
+    {
+      "id": "m115",
+      "age_days": 66,
+      "text": "Alertmanager sends pages to Pushover and non-urgent alerts to email."
+    },
+    {
+      "id": "m116",
+      "age_days": 9,
+      "text": "Disk usage alerts now fire at 90 percent instead of 80 percent."
+    },
+    {
+      "id": "m117",
+      "age_days": 160,
+      "text": "Disk usage alerts fire at 80 percent."
+    },
+    {
+      "id": "m118",
+      "age_days": 44,
+      "text": "The Kea DHCP lease time is 12 hours."
+    },
+    {
+      "id": "m119",
+      "age_days": 85,
+      "text": "Static DHCP leases for servers are defined in the homelab repo, not on the router."
+    },
+    {
+      "id": "m120",
+      "age_days": 37,
+      "text": "Home Assistant now runs as a VM on node006."
+    },
+    {
+      "id": "m121",
+      "age_days": 210,
+      "text": "Home Assistant runs in Docker on ocean."
+    },
+    {
+      "id": "m122",
+      "age_days": 58,
+      "text": "A Zigbee sensor in the kitchen warns when the fridge door is left open."
+    },
+    {
+      "id": "m123",
+      "age_days": 120,
+      "text": "I learned Ansible mostly by writing the homelab playbooks."
+    },
+    {
+      "id": "m124",
+      "age_days": 77,
+      "text": "The laptop is a MacBook Pro with 64 GB of RAM."
+    },
+    {
+      "id": "m125",
+      "age_days": 43,
+      "text": "Local LLM inference on the laptop uses llama3.2:3b and qwen2.5:7b in ollama."
+    },
+    {
+      "id": "m126",
+      "age_days": 26,
+      "text": "Qwen3 Coder 30B runs on node006 for local coding experiments."
+    },
+    {
+      "id": "m127",
+      "age_days": 15,
+      "text": "Terminal bench results go into a Grafana dashboard."
+    },
+    {
+      "id": "m128",
+      "age_days": 180,
+      "text": "The cat water fountains get cleaned every Sunday."
+    },
+    {
+      "id": "m129",
+      "age_days": 100,
+      "text": "Ziggy and Pepper fight over the window perch."
+    },
+    {
+      "id": "m130",
+      "age_days": 140,
+      "text": "Biscuit hides under the bed whenever the vacuum runs."
+    },
+    {
+      "id": "m131",
+      "age_days": 7,
+      "text": "Mochi switched to a new hydrolysed protein brand because the old one was discontinued."
+    },
+    {
+      "id": "m132",
+      "age_days": 55,
+      "text": "The MPC One's internal storage was replaced with a 1 TB SSD."
+    },
+    {
+      "id": "m133",
+      "age_days": 90,
+      "text": "Sample packs live on nas01 under /mnt/data01/music/samples."
+    },
+    {
+      "id": "m134",
+      "age_days": 31,
+      "text": "The bass on the Ocean Floor EP runs through a sidechain compressor keyed off the kick."
+    },
+    {
+      "id": "m135",
+      "age_days": 160,
+      "text": "Kafka producers use acks=all with idempotence enabled."
+    },
+    {
+      "id": "m136",
+      "age_days": 70,
+      "text": "Cruise Control generates the Kafka rebalance plans."
+    },
+    {
+      "id": "m137",
+      "age_days": 22,
+      "text": "MirrorMaker 2 replicates the Kafka audit topics to the disaster recovery cluster."
+    },
+    {
+      "id": "m138",
+      "age_days": 13,
+      "text": "The Kafka client upgrade to 3.7 is planned for next quarter."
+    },
+    {
+      "id": "m139",
+      "age_days": 200,
+      "text": "Production Kafka runbooks live in the team wiki."
+    },
+    {
+      "id": "m140",
+      "age_days": 4,
+      "text": "The new on-call rotation puts me on the Kafka platform every third week."
+    },
+    {
+      "id": "m141",
+      "age_days": 300,
+      "text": "I use zsh with a minimal prompt."
+    },
+    {
+      "id": "m142",
+      "age_days": 170,
+      "text": "Homebrew manages everything installed on the Mac."
+    },
+    {
+      "id": "m143",
+      "age_days": 63,
+      "text": "The dotfiles repo is applied with a bootstrap script."
+    },
+    {
+      "id": "m144",
+      "age_days": 27,
+      "text": "Claude Code sessions run in worktrees under .claude/worktrees."
+    },
+    {
+      "id": "m145",
+      "age_days": 16,
+      "text": "Homelab secrets live in homelab/vault/secrets.yaml, encrypted with ansible-vault."
+    },
+    {
+      "id": "m146",
+      "age_days": 11,
+      "text": "A leaked Plex token was found in a committed screenshot, so the git history was rewritten."
+    },
+    {
+      "id": "m147",
+      "age_days": 48,
+      "text": "Tdarr's database lives on node006 local NVMe."
+    },
+    {
+      "id": "m148",
+      "age_days": 39,
+      "text": "Sonarr was slow until its database moved off the NAS."
+    },
+    {
+      "id": "m149",
+      "age_days": 88,
+      "text": "The arr stack updates itself weekly through Watchtower."
+    },
+    {
+      "id": "m150",
+      "age_days": 19,
+      "text": "Watchtower was removed; container updates now go through Renovate PRs."
+    },
+    {
+      "id": "f151",
+      "age_days": 1,
+      "text": "PR #203 bumped the Plex container healthcheck."
+    },
+    {
+      "id": "f152",
+      "age_days": 38,
+      "text": "PR #206 fixed the Kea reservation list."
+    },
+    {
+      "id": "f153",
+      "age_days": 75,
+      "text": "PR #209 refactored the mem0 docker compose file."
+    },
+    {
+      "id": "f154",
+      "age_days": 112,
+      "text": "PR #212 documented the Watchtower schedule."
+    },
+    {
+      "id": "f155",
+      "age_days": 149,
+      "text": "PR #215 pinned the Grafana datasource."
+    },
+    {
+      "id": "f156",
+      "age_days": 186,
+      "text": "PR #218 removed the node005 network bond."
+    },
+    {
+      "id": "f157",
+      "age_days": 223,
+      "text": "PR #221 added the Cloudflare tunnel config."
+    },
+    {
+      "id": "f158",
+      "age_days": 260,
+      "text": "PR #224 reverted the Tdarr worker config."
+    },
+    {
+      "id": "f159",
+      "age_days": 297,
+      "text": "PR #227 retuned the Unbound blocklist."
+    },
+    {
+      "id": "f160",
+      "age_days": 334,
+      "text": "PR #230 migrated the mem0 recall hook script."
+    },
+    {
+      "id": "f161",
+      "age_days": 371,
+      "text": "PR #233 bumped the Alertmanager routes."
+    },
+    {
+      "id": "f162",
+      "age_days": 8,
+      "text": "PR #236 fixed the Prometheus retention flag."
+    },
+    {
+      "id": "f163",
+      "age_days": 45,
+      "text": "PR #239 refactored the node006 storage pool."
+    },
+    {
+      "id": "f164",
+      "age_days": 82,
+      "text": "PR #242 documented the gh-runner image."
+    },
+    {
+      "id": "f165",
+      "age_days": 119,
+      "text": "PR #245 pinned the Sonarr API key handling."
+    },
+    {
+      "id": "f166",
+      "age_days": 156,
+      "text": "PR #248 removed the nginx vhost for ocean."
+    },
+    {
+      "id": "f167",
+      "age_days": 193,
+      "text": "PR #251 added the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f168",
+      "age_days": 230,
+      "text": "PR #254 reverted the NZBGet queue limits."
+    },
+    {
+      "id": "f169",
+      "age_days": 267,
+      "text": "PR #257 retuned the Loki label set."
+    },
+    {
+      "id": "f170",
+      "age_days": 304,
+      "text": "PR #260 migrated the ZFS scrub schedule."
+    },
+    {
+      "id": "f171",
+      "age_days": 341,
+      "text": "PR #263 bumped the ansible inventory groups."
+    },
+    {
+      "id": "f172",
+      "age_days": 378,
+      "text": "PR #266 fixed the Radarr download path."
+    },
+    {
+      "id": "f173",
+      "age_days": 15,
+      "text": "PR #269 refactored the restic exclude list."
+    },
+    {
+      "id": "f174",
+      "age_days": 52,
+      "text": "PR #272 documented the Vaultwarden backup job."
+    },
+    {
+      "id": "f175",
+      "age_days": 89,
+      "text": "PR #275 pinned the Plex container healthcheck."
+    },
+    {
+      "id": "f176",
+      "age_days": 126,
+      "text": "PR #278 removed the Kea reservation list."
+    },
+    {
+      "id": "f177",
+      "age_days": 163,
+      "text": "PR #281 added the mem0 docker compose file."
+    },
+    {
+      "id": "f178",
+      "age_days": 200,
+      "text": "PR #284 reverted the Watchtower schedule."
+    },
+    {
+      "id": "f179",
+      "age_days": 237,
+      "text": "PR #287 retuned the Grafana datasource."
+    },
+    {
+      "id": "f180",
+      "age_days": 274,
+      "text": "PR #290 migrated the node005 network bond."
+    },
+    {
+      "id": "f181",
+      "age_days": 311,
+      "text": "PR #293 bumped the Cloudflare tunnel config."
+    },
+    {
+      "id": "f182",
+      "age_days": 348,
+      "text": "PR #296 fixed the Tdarr worker config."
+    },
+    {
+      "id": "f183",
+      "age_days": 385,
+      "text": "PR #299 refactored the Unbound blocklist."
+    },
+    {
+      "id": "f184",
+      "age_days": 22,
+      "text": "PR #302 documented the mem0 recall hook script."
+    },
+    {
+      "id": "f185",
+      "age_days": 59,
+      "text": "PR #305 pinned the Alertmanager routes."
+    },
+    {
+      "id": "f186",
+      "age_days": 96,
+      "text": "PR #308 removed the Prometheus retention flag."
+    },
+    {
+      "id": "f187",
+      "age_days": 133,
+      "text": "PR #311 added the node006 storage pool."
+    },
+    {
+      "id": "f188",
+      "age_days": 170,
+      "text": "PR #314 reverted the gh-runner image."
+    },
+    {
+      "id": "f189",
+      "age_days": 207,
+      "text": "PR #317 retuned the Sonarr API key handling."
+    },
+    {
+      "id": "f190",
+      "age_days": 244,
+      "text": "PR #320 migrated the nginx vhost for ocean."
+    },
+    {
+      "id": "f191",
+      "age_days": 281,
+      "text": "PR #323 bumped the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f192",
+      "age_days": 318,
+      "text": "PR #326 fixed the NZBGet queue limits."
+    },
+    {
+      "id": "f193",
+      "age_days": 355,
+      "text": "PR #329 refactored the Loki label set."
+    },
+    {
+      "id": "f194",
+      "age_days": 392,
+      "text": "PR #332 documented the ZFS scrub schedule."
+    },
+    {
+      "id": "f195",
+      "age_days": 29,
+      "text": "PR #335 pinned the ansible inventory groups."
+    },
+    {
+      "id": "f196",
+      "age_days": 66,
+      "text": "PR #338 removed the Radarr download path."
+    },
+    {
+      "id": "f197",
+      "age_days": 103,
+      "text": "PR #341 added the restic exclude list."
+    },
+    {
+      "id": "f198",
+      "age_days": 140,
+      "text": "PR #344 reverted the Vaultwarden backup job."
+    },
+    {
+      "id": "f199",
+      "age_days": 177,
+      "text": "PR #347 retuned the Plex container healthcheck."
+    },
+    {
+      "id": "f200",
+      "age_days": 214,
+      "text": "PR #350 migrated the Kea reservation list."
+    },
+    {
+      "id": "f201",
+      "age_days": 251,
+      "text": "PR #353 bumped the mem0 docker compose file."
+    },
+    {
+      "id": "f202",
+      "age_days": 288,
+      "text": "PR #356 fixed the Watchtower schedule."
+    },
+    {
+      "id": "f203",
+      "age_days": 325,
+      "text": "PR #359 refactored the Grafana datasource."
+    },
+    {
+      "id": "f204",
+      "age_days": 362,
+      "text": "PR #362 documented the node005 network bond."
+    },
+    {
+      "id": "f205",
+      "age_days": 399,
+      "text": "PR #365 pinned the Cloudflare tunnel config."
+    },
+    {
+      "id": "f206",
+      "age_days": 36,
+      "text": "PR #368 removed the Tdarr worker config."
+    },
+    {
+      "id": "f207",
+      "age_days": 73,
+      "text": "PR #371 added the Unbound blocklist."
+    },
+    {
+      "id": "f208",
+      "age_days": 110,
+      "text": "PR #374 reverted the mem0 recall hook script."
+    },
+    {
+      "id": "f209",
+      "age_days": 147,
+      "text": "PR #377 retuned the Alertmanager routes."
+    },
+    {
+      "id": "f210",
+      "age_days": 184,
+      "text": "PR #380 migrated the Prometheus retention flag."
+    },
+    {
+      "id": "f211",
+      "age_days": 221,
+      "text": "PR #383 bumped the node006 storage pool."
+    },
+    {
+      "id": "f212",
+      "age_days": 258,
+      "text": "PR #386 fixed the gh-runner image."
+    },
+    {
+      "id": "f213",
+      "age_days": 295,
+      "text": "PR #392 refactored the Sonarr API key handling."
+    },
+    {
+      "id": "f214",
+      "age_days": 332,
+      "text": "PR #395 documented the nginx vhost for ocean."
+    },
+    {
+      "id": "f215",
+      "age_days": 369,
+      "text": "PR #398 pinned the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f216",
+      "age_days": 6,
+      "text": "PR #401 removed the NZBGet queue limits."
+    },
+    {
+      "id": "f217",
+      "age_days": 43,
+      "text": "PR #404 added the Loki label set."
+    },
+    {
+      "id": "f218",
+      "age_days": 80,
+      "text": "PR #407 reverted the ZFS scrub schedule."
+    },
+    {
+      "id": "f219",
+      "age_days": 117,
+      "text": "PR #410 retuned the ansible inventory groups."
+    },
+    {
+      "id": "f220",
+      "age_days": 154,
+      "text": "PR #413 migrated the Radarr download path."
+    },
+    {
+      "id": "f221",
+      "age_days": 191,
+      "text": "PR #416 bumped the restic exclude list."
+    },
+    {
+      "id": "f222",
+      "age_days": 228,
+      "text": "PR #419 fixed the Vaultwarden backup job."
+    },
+    {
+      "id": "f223",
+      "age_days": 265,
+      "text": "PR #425 refactored the Plex container healthcheck."
+    },
+    {
+      "id": "f224",
+      "age_days": 302,
+      "text": "PR #428 documented the Kea reservation list."
+    },
+    {
+      "id": "f225",
+      "age_days": 339,
+      "text": "PR #431 pinned the mem0 docker compose file."
+    },
+    {
+      "id": "f226",
+      "age_days": 376,
+      "text": "PR #434 removed the Watchtower schedule."
+    },
+    {
+      "id": "f227",
+      "age_days": 13,
+      "text": "PR #437 added the Grafana datasource."
+    },
+    {
+      "id": "f228",
+      "age_days": 50,
+      "text": "PR #440 reverted the node005 network bond."
+    },
+    {
+      "id": "f229",
+      "age_days": 87,
+      "text": "PR #443 retuned the Cloudflare tunnel config."
+    },
+    {
+      "id": "f230",
+      "age_days": 124,
+      "text": "PR #446 migrated the Tdarr worker config."
+    },
+    {
+      "id": "f231",
+      "age_days": 161,
+      "text": "PR #449 bumped the Unbound blocklist."
+    },
+    {
+      "id": "f232",
+      "age_days": 198,
+      "text": "PR #452 fixed the mem0 recall hook script."
+    },
+    {
+      "id": "f233",
+      "age_days": 235,
+      "text": "PR #455 refactored the Alertmanager routes."
+    },
+    {
+      "id": "f234",
+      "age_days": 272,
+      "text": "PR #458 documented the Prometheus retention flag."
+    },
+    {
+      "id": "f235",
+      "age_days": 309,
+      "text": "PR #461 pinned the node006 storage pool."
+    },
+    {
+      "id": "f236",
+      "age_days": 346,
+      "text": "PR #464 removed the gh-runner image."
+    },
+    {
+      "id": "f237",
+      "age_days": 383,
+      "text": "PR #467 added the Sonarr API key handling."
+    },
+    {
+      "id": "f238",
+      "age_days": 20,
+      "text": "PR #470 reverted the nginx vhost for ocean."
+    },
+    {
+      "id": "f239",
+      "age_days": 57,
+      "text": "PR #473 retuned the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f240",
+      "age_days": 94,
+      "text": "PR #476 migrated the NZBGet queue limits."
+    },
+    {
+      "id": "f241",
+      "age_days": 131,
+      "text": "PR #479 bumped the Loki label set."
+    },
+    {
+      "id": "f242",
+      "age_days": 168,
+      "text": "PR #482 fixed the ZFS scrub schedule."
+    },
+    {
+      "id": "f243",
+      "age_days": 205,
+      "text": "PR #485 refactored the ansible inventory groups."
+    },
+    {
+      "id": "f244",
+      "age_days": 242,
+      "text": "PR #488 documented the Radarr download path."
+    },
+    {
+      "id": "f245",
+      "age_days": 279,
+      "text": "PR #491 pinned the restic exclude list."
+    },
+    {
+      "id": "f246",
+      "age_days": 316,
+      "text": "PR #494 removed the Vaultwarden backup job."
+    },
+    {
+      "id": "f247",
+      "age_days": 353,
+      "text": "PR #497 added the Plex container healthcheck."
+    },
+    {
+      "id": "f248",
+      "age_days": 390,
+      "text": "PR #500 reverted the Kea reservation list."
+    },
+    {
+      "id": "f249",
+      "age_days": 27,
+      "text": "PR #503 retuned the mem0 docker compose file."
+    },
+    {
+      "id": "f250",
+      "age_days": 64,
+      "text": "PR #506 migrated the Watchtower schedule."
+    },
+    {
+      "id": "f251",
+      "age_days": 101,
+      "text": "PR #509 bumped the Grafana datasource."
+    },
+    {
+      "id": "f252",
+      "age_days": 138,
+      "text": "PR #512 fixed the node005 network bond."
+    },
+    {
+      "id": "f253",
+      "age_days": 175,
+      "text": "PR #515 refactored the Cloudflare tunnel config."
+    },
+    {
+      "id": "f254",
+      "age_days": 212,
+      "text": "PR #518 documented the Tdarr worker config."
+    },
+    {
+      "id": "f255",
+      "age_days": 249,
+      "text": "PR #521 pinned the Unbound blocklist."
+    },
+    {
+      "id": "f256",
+      "age_days": 286,
+      "text": "PR #524 removed the mem0 recall hook script."
+    },
+    {
+      "id": "f257",
+      "age_days": 323,
+      "text": "PR #527 added the Alertmanager routes."
+    },
+    {
+      "id": "f258",
+      "age_days": 360,
+      "text": "PR #530 reverted the Prometheus retention flag."
+    },
+    {
+      "id": "f259",
+      "age_days": 397,
+      "text": "PR #533 retuned the node006 storage pool."
+    },
+    {
+      "id": "f260",
+      "age_days": 34,
+      "text": "PR #536 migrated the gh-runner image."
+    },
+    {
+      "id": "f261",
+      "age_days": 71,
+      "text": "PR #539 bumped the Sonarr API key handling."
+    },
+    {
+      "id": "f262",
+      "age_days": 108,
+      "text": "PR #542 fixed the nginx vhost for ocean."
+    },
+    {
+      "id": "f263",
+      "age_days": 145,
+      "text": "PR #545 refactored the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f264",
+      "age_days": 182,
+      "text": "PR #548 documented the NZBGet queue limits."
+    },
+    {
+      "id": "f265",
+      "age_days": 219,
+      "text": "PR #551 pinned the Loki label set."
+    },
+    {
+      "id": "f266",
+      "age_days": 256,
+      "text": "PR #554 removed the ZFS scrub schedule."
+    },
+    {
+      "id": "f267",
+      "age_days": 293,
+      "text": "PR #557 added the ansible inventory groups."
+    },
+    {
+      "id": "f268",
+      "age_days": 330,
+      "text": "PR #560 reverted the Radarr download path."
+    },
+    {
+      "id": "f269",
+      "age_days": 367,
+      "text": "PR #563 retuned the restic exclude list."
+    },
+    {
+      "id": "f270",
+      "age_days": 4,
+      "text": "PR #566 migrated the Vaultwarden backup job."
+    },
+    {
+      "id": "f271",
+      "age_days": 41,
+      "text": "PR #569 bumped the Plex container healthcheck."
+    },
+    {
+      "id": "f272",
+      "age_days": 78,
+      "text": "PR #572 fixed the Kea reservation list."
+    },
+    {
+      "id": "f273",
+      "age_days": 115,
+      "text": "PR #575 refactored the mem0 docker compose file."
+    },
+    {
+      "id": "f274",
+      "age_days": 152,
+      "text": "PR #578 documented the Watchtower schedule."
+    },
+    {
+      "id": "f275",
+      "age_days": 189,
+      "text": "PR #581 pinned the Grafana datasource."
+    },
+    {
+      "id": "f276",
+      "age_days": 226,
+      "text": "PR #584 removed the node005 network bond."
+    },
+    {
+      "id": "f277",
+      "age_days": 263,
+      "text": "PR #587 added the Cloudflare tunnel config."
+    },
+    {
+      "id": "f278",
+      "age_days": 300,
+      "text": "PR #590 reverted the Tdarr worker config."
+    },
+    {
+      "id": "f279",
+      "age_days": 337,
+      "text": "PR #596 retuned the Unbound blocklist."
+    },
+    {
+      "id": "f280",
+      "age_days": 374,
+      "text": "PR #599 migrated the mem0 recall hook script."
+    },
+    {
+      "id": "f281",
+      "age_days": 11,
+      "text": "PR #602 bumped the Alertmanager routes."
+    },
+    {
+      "id": "f282",
+      "age_days": 48,
+      "text": "PR #605 fixed the Prometheus retention flag."
+    },
+    {
+      "id": "f283",
+      "age_days": 85,
+      "text": "PR #608 refactored the node006 storage pool."
+    },
+    {
+      "id": "f284",
+      "age_days": 122,
+      "text": "PR #611 documented the gh-runner image."
+    },
+    {
+      "id": "f285",
+      "age_days": 159,
+      "text": "PR #614 pinned the Sonarr API key handling."
+    },
+    {
+      "id": "f286",
+      "age_days": 196,
+      "text": "PR #617 removed the nginx vhost for ocean."
+    },
+    {
+      "id": "f287",
+      "age_days": 233,
+      "text": "PR #620 added the Home Assistant automation for the feeder."
+    },
+    {
+      "id": "f288",
+      "age_days": 270,
+      "text": "PR #623 reverted the NZBGet queue limits."
+    },
+    {
+      "id": "f289",
+      "age_days": 307,
+      "text": "PR #626 retuned the Loki label set."
+    },
+    {
+      "id": "f290",
+      "age_days": 344,
+      "text": "PR #629 migrated the ZFS scrub schedule."
+    },
+    {
+      "id": "f291",
+      "age_days": 381,
+      "text": "User's mem0 on ocean was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f292",
+      "age_days": 18,
+      "text": "User's Plex on nas01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f293",
+      "age_days": 55,
+      "text": "User's Tdarr on node005 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f294",
+      "age_days": 92,
+      "text": "User's Grafana on gh-runner-01 was healthy after a container restart."
+    },
+    {
+      "id": "f295",
+      "age_days": 129,
+      "text": "User's Prometheus on node006 was healthy after a config change was merged."
+    },
+    {
+      "id": "f296",
+      "age_days": 166,
+      "text": "User's Loki on ocean was healthy after a dependency bump."
+    },
+    {
+      "id": "f297",
+      "age_days": 203,
+      "text": "User's Sonarr on nas01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f298",
+      "age_days": 240,
+      "text": "User's Radarr on node005 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f299",
+      "age_days": 277,
+      "text": "User's Kea on gh-runner-01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f300",
+      "age_days": 314,
+      "text": "User's Unbound on node006 was healthy after the CI run went green."
+    },
+    {
+      "id": "f301",
+      "age_days": 351,
+      "text": "User's Vaultwarden on ocean was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f302",
+      "age_days": 388,
+      "text": "User's Home Assistant on nas01 was healthy after a container restart."
+    },
+    {
+      "id": "f303",
+      "age_days": 25,
+      "text": "User's NZBGet on node005 was healthy after a config change was merged."
+    },
+    {
+      "id": "f304",
+      "age_days": 62,
+      "text": "User's Prowlarr on gh-runner-01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f305",
+      "age_days": 99,
+      "text": "User's mem0 on node006 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f306",
+      "age_days": 136,
+      "text": "User's Plex on ocean was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f307",
+      "age_days": 173,
+      "text": "User's Tdarr on nas01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f308",
+      "age_days": 210,
+      "text": "User's Grafana on node005 was healthy after the CI run went green."
+    },
+    {
+      "id": "f309",
+      "age_days": 247,
+      "text": "User's Prometheus on gh-runner-01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f310",
+      "age_days": 284,
+      "text": "User's Loki on node006 was healthy after a container restart."
+    },
+    {
+      "id": "f311",
+      "age_days": 321,
+      "text": "User's Sonarr on ocean was healthy after a config change was merged."
+    },
+    {
+      "id": "f312",
+      "age_days": 358,
+      "text": "User's Radarr on nas01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f313",
+      "age_days": 395,
+      "text": "User's Kea on node005 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f314",
+      "age_days": 32,
+      "text": "User's Unbound on gh-runner-01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f315",
+      "age_days": 69,
+      "text": "User's Vaultwarden on node006 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f316",
+      "age_days": 106,
+      "text": "User's Home Assistant on ocean was healthy after the CI run went green."
+    },
+    {
+      "id": "f317",
+      "age_days": 143,
+      "text": "User's NZBGet on nas01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f318",
+      "age_days": 180,
+      "text": "User's Prowlarr on node005 was healthy after a container restart."
+    },
+    {
+      "id": "f319",
+      "age_days": 217,
+      "text": "User's mem0 on gh-runner-01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f320",
+      "age_days": 254,
+      "text": "User's Plex on node006 was healthy after a dependency bump."
+    },
+    {
+      "id": "f321",
+      "age_days": 291,
+      "text": "User's Tdarr on ocean was healthy after the nightly reboot."
+    },
+    {
+      "id": "f322",
+      "age_days": 328,
+      "text": "User's Grafana on nas01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f323",
+      "age_days": 365,
+      "text": "User's Prometheus on node005 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f324",
+      "age_days": 2,
+      "text": "User's Loki on gh-runner-01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f325",
+      "age_days": 39,
+      "text": "User's Sonarr on node006 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f326",
+      "age_days": 76,
+      "text": "User's Radarr on ocean was healthy after a container restart."
+    },
+    {
+      "id": "f327",
+      "age_days": 113,
+      "text": "User's Kea on nas01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f328",
+      "age_days": 150,
+      "text": "User's Unbound on node005 was healthy after a dependency bump."
+    },
+    {
+      "id": "f329",
+      "age_days": 187,
+      "text": "User's Vaultwarden on gh-runner-01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f330",
+      "age_days": 224,
+      "text": "User's Home Assistant on node006 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f331",
+      "age_days": 261,
+      "text": "User's NZBGet on ocean was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f332",
+      "age_days": 298,
+      "text": "User's Prowlarr on nas01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f333",
+      "age_days": 335,
+      "text": "User's mem0 on node005 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f334",
+      "age_days": 372,
+      "text": "User's Plex on gh-runner-01 was healthy after a container restart."
+    },
+    {
+      "id": "f335",
+      "age_days": 9,
+      "text": "User's Tdarr on node006 was healthy after a config change was merged."
+    },
+    {
+      "id": "f336",
+      "age_days": 46,
+      "text": "User's Grafana on ocean was healthy after a dependency bump."
+    },
+    {
+      "id": "f337",
+      "age_days": 83,
+      "text": "User's Prometheus on nas01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f338",
+      "age_days": 120,
+      "text": "User's Loki on node005 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f339",
+      "age_days": 157,
+      "text": "User's Sonarr on gh-runner-01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f340",
+      "age_days": 194,
+      "text": "User's Radarr on node006 was healthy after the CI run went green."
+    },
+    {
+      "id": "f341",
+      "age_days": 231,
+      "text": "User's Kea on ocean was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f342",
+      "age_days": 268,
+      "text": "User's Unbound on nas01 was healthy after a container restart."
+    },
+    {
+      "id": "f343",
+      "age_days": 305,
+      "text": "User's Vaultwarden on node005 was healthy after a config change was merged."
+    },
+    {
+      "id": "f344",
+      "age_days": 342,
+      "text": "User's Home Assistant on gh-runner-01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f345",
+      "age_days": 379,
+      "text": "User's NZBGet on node006 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f346",
+      "age_days": 16,
+      "text": "User's Prowlarr on ocean was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f347",
+      "age_days": 53,
+      "text": "User's mem0 on nas01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f348",
+      "age_days": 90,
+      "text": "User's Plex on node005 was healthy after the CI run went green."
+    },
+    {
+      "id": "f349",
+      "age_days": 127,
+      "text": "User's Tdarr on gh-runner-01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f350",
+      "age_days": 164,
+      "text": "User's Grafana on node006 was healthy after a container restart."
+    },
+    {
+      "id": "f351",
+      "age_days": 201,
+      "text": "User's Prometheus on ocean was healthy after a config change was merged."
+    },
+    {
+      "id": "f352",
+      "age_days": 238,
+      "text": "User's Loki on nas01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f353",
+      "age_days": 275,
+      "text": "User's Sonarr on node005 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f354",
+      "age_days": 312,
+      "text": "User's Radarr on gh-runner-01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f355",
+      "age_days": 349,
+      "text": "User's Kea on node006 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f356",
+      "age_days": 386,
+      "text": "User's Unbound on ocean was healthy after the CI run went green."
+    },
+    {
+      "id": "f357",
+      "age_days": 23,
+      "text": "User's Vaultwarden on nas01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f358",
+      "age_days": 60,
+      "text": "User's Home Assistant on node005 was healthy after a container restart."
+    },
+    {
+      "id": "f359",
+      "age_days": 97,
+      "text": "User's NZBGet on gh-runner-01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f360",
+      "age_days": 134,
+      "text": "User's Prowlarr on node006 was healthy after a dependency bump."
+    },
+    {
+      "id": "f361",
+      "age_days": 171,
+      "text": "User's mem0 on ocean was healthy after the nightly reboot."
+    },
+    {
+      "id": "f362",
+      "age_days": 208,
+      "text": "User's Plex on nas01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f363",
+      "age_days": 245,
+      "text": "User's Tdarr on node005 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f364",
+      "age_days": 282,
+      "text": "User's Grafana on gh-runner-01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f365",
+      "age_days": 319,
+      "text": "User's Prometheus on node006 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f366",
+      "age_days": 356,
+      "text": "User's Loki on ocean was healthy after a container restart."
+    },
+    {
+      "id": "f367",
+      "age_days": 393,
+      "text": "User's Sonarr on nas01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f368",
+      "age_days": 30,
+      "text": "User's Radarr on node005 was healthy after a dependency bump."
+    },
+    {
+      "id": "f369",
+      "age_days": 67,
+      "text": "User's Kea on gh-runner-01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f370",
+      "age_days": 104,
+      "text": "User's Unbound on node006 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f371",
+      "age_days": 141,
+      "text": "User's Vaultwarden on ocean was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f372",
+      "age_days": 178,
+      "text": "User's Home Assistant on nas01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f373",
+      "age_days": 215,
+      "text": "User's NZBGet on node005 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f374",
+      "age_days": 252,
+      "text": "User's Prowlarr on gh-runner-01 was healthy after a container restart."
+    },
+    {
+      "id": "f375",
+      "age_days": 289,
+      "text": "User's mem0 on node006 was healthy after a config change was merged."
+    },
+    {
+      "id": "f376",
+      "age_days": 326,
+      "text": "User's Plex on ocean was healthy after a dependency bump."
+    },
+    {
+      "id": "f377",
+      "age_days": 363,
+      "text": "User's Tdarr on nas01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f378",
+      "age_days": 400,
+      "text": "User's Grafana on node005 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f379",
+      "age_days": 37,
+      "text": "User's Prometheus on gh-runner-01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f380",
+      "age_days": 74,
+      "text": "User's Loki on node006 was healthy after the CI run went green."
+    },
+    {
+      "id": "f381",
+      "age_days": 111,
+      "text": "User's Sonarr on ocean was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f382",
+      "age_days": 148,
+      "text": "User's Radarr on nas01 was healthy after a container restart."
+    },
+    {
+      "id": "f383",
+      "age_days": 185,
+      "text": "User's Kea on node005 was healthy after a config change was merged."
+    },
+    {
+      "id": "f384",
+      "age_days": 222,
+      "text": "User's Unbound on gh-runner-01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f385",
+      "age_days": 259,
+      "text": "User's Vaultwarden on node006 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f386",
+      "age_days": 296,
+      "text": "User's Home Assistant on ocean was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f387",
+      "age_days": 333,
+      "text": "User's NZBGet on nas01 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f388",
+      "age_days": 370,
+      "text": "User's Prowlarr on node005 was healthy after the CI run went green."
+    },
+    {
+      "id": "f389",
+      "age_days": 7,
+      "text": "User's mem0 on gh-runner-01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f390",
+      "age_days": 44,
+      "text": "User's Plex on node006 was healthy after a container restart."
+    },
+    {
+      "id": "f391",
+      "age_days": 81,
+      "text": "User's Tdarr on ocean was healthy after a config change was merged."
+    },
+    {
+      "id": "f392",
+      "age_days": 118,
+      "text": "User's Grafana on nas01 was healthy after a dependency bump."
+    },
+    {
+      "id": "f393",
+      "age_days": 155,
+      "text": "User's Prometheus on node005 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f394",
+      "age_days": 192,
+      "text": "User's Loki on gh-runner-01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f395",
+      "age_days": 229,
+      "text": "User's Sonarr on node006 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f396",
+      "age_days": 266,
+      "text": "User's Radarr on ocean was healthy after the CI run went green."
+    },
+    {
+      "id": "f397",
+      "age_days": 303,
+      "text": "User's Kea on nas01 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f398",
+      "age_days": 340,
+      "text": "User's Unbound on node005 was healthy after a container restart."
+    },
+    {
+      "id": "f399",
+      "age_days": 377,
+      "text": "User's Vaultwarden on gh-runner-01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f400",
+      "age_days": 14,
+      "text": "User's Home Assistant on node006 was healthy after a dependency bump."
+    },
+    {
+      "id": "f401",
+      "age_days": 51,
+      "text": "User's NZBGet on ocean was healthy after the nightly reboot."
+    },
+    {
+      "id": "f402",
+      "age_days": 88,
+      "text": "User's Prowlarr on nas01 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f403",
+      "age_days": 125,
+      "text": "User's mem0 on node005 was healthy after the homelab deploy finished."
+    },
+    {
+      "id": "f404",
+      "age_days": 162,
+      "text": "User's Plex on gh-runner-01 was healthy after the CI run went green."
+    },
+    {
+      "id": "f405",
+      "age_days": 199,
+      "text": "User's Tdarr on node006 was healthy after the healthcheck was tightened."
+    },
+    {
+      "id": "f406",
+      "age_days": 236,
+      "text": "User's Grafana on ocean was healthy after a container restart."
+    },
+    {
+      "id": "f407",
+      "age_days": 273,
+      "text": "User's Prometheus on nas01 was healthy after a config change was merged."
+    },
+    {
+      "id": "f408",
+      "age_days": 310,
+      "text": "User's Loki on node005 was healthy after a dependency bump."
+    },
+    {
+      "id": "f409",
+      "age_days": 347,
+      "text": "User's Sonarr on gh-runner-01 was healthy after the nightly reboot."
+    },
+    {
+      "id": "f410",
+      "age_days": 384,
+      "text": "User's Radarr on node006 was healthy after the image was rebuilt."
+    },
+    {
+      "id": "f411",
+      "age_days": 21,
+      "text": "User asked how to tune the ZFS ARC size."
+    },
+    {
+      "id": "f412",
+      "age_days": 58,
+      "text": "User was told the way to tune the ZFS ARC size depends on the setup."
+    },
+    {
+      "id": "f413",
+      "age_days": 95,
+      "text": "User asked whether to move Grafana to node006."
+    },
+    {
+      "id": "f414",
+      "age_days": 132,
+      "text": "User was told if it made sense to move Grafana to node006 depends on the setup."
+    },
+    {
+      "id": "f415",
+      "age_days": 169,
+      "text": "User asked how ts_rank_cd scores matches."
+    },
+    {
+      "id": "f416",
+      "age_days": 206,
+      "text": "User was told how ts_rank_cd scores matches depends on the setup."
+    },
+    {
+      "id": "f417",
+      "age_days": 243,
+      "text": "User asked why the CI gate skipped a job."
+    },
+    {
+      "id": "f418",
+      "age_days": 280,
+      "text": "User was told why the CI gate skipped a job depends on the setup."
+    },
+    {
+      "id": "f419",
+      "age_days": 317,
+      "text": "User asked how Renovate groups updates."
+    },
+    {
+      "id": "f420",
+      "age_days": 354,
+      "text": "User was told how Renovate groups updates depends on the setup."
+    },
+    {
+      "id": "f421",
+      "age_days": 391,
+      "text": "User asked what the Plex transcoder log means."
+    },
+    {
+      "id": "f422",
+      "age_days": 28,
+      "text": "User was told what the Plex transcoder log means depends on the setup."
+    },
+    {
+      "id": "f423",
+      "age_days": 65,
+      "text": "User asked how to read a Kafka consumer group describe."
+    },
+    {
+      "id": "f424",
+      "age_days": 102,
+      "text": "User was told the way to read a Kafka consumer group describe depends on the setup."
+    },
+    {
+      "id": "f425",
+      "age_days": 139,
+      "text": "User asked how pgvector HNSW indexes work."
+    },
+    {
+      "id": "f426",
+      "age_days": 176,
+      "text": "User was told how pgvector HNSW indexes work depends on the setup."
+    },
+    {
+      "id": "f427",
+      "age_days": 213,
+      "text": "User asked whether to split the arr stack into its own VM."
+    },
+    {
+      "id": "f428",
+      "age_days": 250,
+      "text": "User was told if it made sense to split the arr stack into its own VM depends on the setup."
+    },
+    {
+      "id": "f429",
+      "age_days": 287,
+      "text": "User asked how to rotate a GitHub PAT."
+    },
+    {
+      "id": "f430",
+      "age_days": 324,
+      "text": "User was told the way to rotate a GitHub PAT depends on the setup."
+    },
+    {
+      "id": "f431",
+      "age_days": 361,
+      "text": "User asked how spaCy extracts entities."
+    },
+    {
+      "id": "f432",
+      "age_days": 398,
+      "text": "User was told how spaCy extracts entities depends on the setup."
+    },
+    {
+      "id": "f433",
+      "age_days": 35,
+      "text": "User asked how nomic embeddings handle short strings."
+    },
+    {
+      "id": "f434",
+      "age_days": 72,
+      "text": "User was told how nomic embeddings handle short strings depends on the setup."
+    },
+    {
+      "id": "f435",
+      "age_days": 109,
+      "text": "User asked how to set Loki retention per stream."
+    },
+    {
+      "id": "f436",
+      "age_days": 146,
+      "text": "User was told the way to set Loki retention per stream depends on the setup."
+    },
+    {
+      "id": "f437",
+      "age_days": 183,
+      "text": "User asked how restic prune works."
+    },
+    {
+      "id": "f438",
+      "age_days": 220,
+      "text": "User was told how restic prune works depends on the setup."
+    },
+    {
+      "id": "f439",
+      "age_days": 257,
+      "text": "User asked how to label a Proxmox VM."
+    },
+    {
+      "id": "f440",
+      "age_days": 294,
+      "text": "User was told the way to label a Proxmox VM depends on the setup."
+    },
+    {
+      "id": "f441",
+      "age_days": 331,
+      "text": "User asked how Kea handles static leases."
+    },
+    {
+      "id": "f442",
+      "age_days": 368,
+      "text": "User was told how Kea handles static leases depends on the setup."
+    },
+    {
+      "id": "f443",
+      "age_days": 5,
+      "text": "User asked how to write a Prometheus recording rule."
+    },
+    {
+      "id": "f444",
+      "age_days": 42,
+      "text": "User was told the way to write a Prometheus recording rule depends on the setup."
+    },
+    {
+      "id": "f445",
+      "age_days": 79,
+      "text": "User asked how Cruise Control picks goals."
+    },
+    {
+      "id": "f446",
+      "age_days": 116,
+      "text": "User was told how Cruise Control picks goals depends on the setup."
+    },
+    {
+      "id": "f447",
+      "age_days": 153,
+      "text": "User asked how the MPC One handles MIDI clock."
+    },
+    {
+      "id": "f448",
+      "age_days": 190,
+      "text": "User was told how the MPC One handles MIDI clock depends on the setup."
+    },
+    {
+      "id": "f449",
+      "age_days": 227,
+      "text": "User asked how to set up a Digitakt sound pool."
+    },
+    {
+      "id": "f450",
+      "age_days": 264,
+      "text": "User was told the way to set up a Digitakt sound pool depends on the setup."
+    },
+    {
+      "id": "f451",
+      "age_days": 301,
+      "text": "Before this job I ran a three-broker Kafka cluster that still used ZooKeeper."
+    },
+    {
+      "id": "f452",
+      "age_days": 338,
+      "text": "A friend's Plex server runs on a Synology NAS."
+    },
+    {
+      "id": "f453",
+      "age_days": 375,
+      "text": "The old laptop was a MacBook Air with 16 GB of RAM."
+    },
+    {
+      "id": "f454",
+      "age_days": 12,
+      "text": "My previous car was a 2008 Honda Fit."
+    },
+    {
+      "id": "f455",
+      "age_days": 49,
+      "text": "A coworker's cat is on thyroid medication too."
+    },
+    {
+      "id": "f456",
+      "age_days": 86,
+      "text": "The office at work has a Grafana dashboard on a TV for Kafka lag."
+    },
+    {
+      "id": "f457",
+      "age_days": 123,
+      "text": "Our team's staging Kafka cluster has three brokers."
+    },
+    {
+      "id": "f458",
+      "age_days": 160,
+      "text": "The work VPN is GlobalProtect, unrelated to the homelab."
+    },
+    {
+      "id": "f459",
+      "age_days": 197,
+      "text": "My parents' router does DHCP for their house."
+    },
+    {
+      "id": "f460",
+      "age_days": 234,
+      "text": "The neighbour's cat sometimes visits the garden."
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01",
+      "text": "which host runs Plex",
+      "gold": [
+        "m031",
+        "m001"
+      ]
+    },
+    {
+      "id": "q02",
+      "text": "how much RAM does node006 have",
+      "gold": [
+        "m002"
+      ]
+    },
+    {
+      "id": "q03",
+      "text": "what RAID layout does the media pool use",
+      "gold": [
+        "m003"
+      ]
+    },
+    {
+      "id": "q04",
+      "text": "which drives are failing in data01",
+      "gold": [
+        "m004"
+      ]
+    },
+    {
+      "id": "q05",
+      "text": "what runs DHCP on the network",
+      "gold": [
+        "m005"
+      ]
+    },
+    {
+      "id": "q06",
+      "text": "where does DNS resolution happen",
+      "gold": [
+        "m006"
+      ]
+    },
+    {
+      "id": "q07",
+      "text": "why was the Cloudflare DDNS token rotated",
+      "gold": [
+        "m008"
+      ]
+    },
+    {
+      "id": "q08",
+      "text": "how long does Loki keep logs",
+      "gold": [
+        "m014"
+      ]
+    },
+    {
+      "id": "q09",
+      "text": "when do the nightly backups run",
+      "gold": [
+        "m027"
+      ]
+    },
+    {
+      "id": "q10",
+      "text": "what time do restic backups start",
+      "gold": [
+        "m027"
+      ]
+    },
+    {
+      "id": "q11",
+      "text": "Plex token leak",
+      "gold": [
+        "m032",
+        "m146"
+      ]
+    },
+    {
+      "id": "q12",
+      "text": "when does Tdarr transcode",
+      "gold": [
+        "m033"
+      ]
+    },
+    {
+      "id": "q13",
+      "text": "how many GPU workers does Tdarr use",
+      "gold": [
+        "m040"
+      ]
+    },
+    {
+      "id": "q14",
+      "text": "how do downloads get to Sonarr and Radarr",
+      "gold": [
+        "m034",
+        "m036"
+      ]
+    },
+    {
+      "id": "q15",
+      "text": "when do Kafka partition rebalances happen",
+      "gold": [
+        "m044"
+      ]
+    },
+    {
+      "id": "q16",
+      "text": "how many Kafka brokers are there",
+      "gold": [
+        "m041"
+      ]
+    },
+    {
+      "id": "q17",
+      "text": "does Kafka use ZooKeeper",
+      "gold": [
+        "m042"
+      ]
+    },
+    {
+      "id": "q18",
+      "text": "Kafka retention for audit topics",
+      "gold": [
+        "m045"
+      ]
+    },
+    {
+      "id": "q19",
+      "text": "how often am I on call for Kafka",
+      "gold": [
+        "m140"
+      ]
+    },
+    {
+      "id": "q20",
+      "text": "what tempo do I make techno at",
+      "gold": [
+        "m051"
+      ]
+    },
+    {
+      "id": "q21",
+      "text": "what drum machine do I use",
+      "gold": [
+        "m052"
+      ]
+    },
+    {
+      "id": "q22",
+      "text": "how many tracks are on the Ocean Floor EP",
+      "gold": [
+        "m055"
+      ]
+    },
+    {
+      "id": "q23",
+      "text": "MIDI clock sync problem",
+      "gold": [
+        "m058"
+      ]
+    },
+    {
+      "id": "q24",
+      "text": "what does Biscuit eat",
+      "gold": [
+        "m062"
+      ]
+    },
+    {
+      "id": "q25",
+      "text": "what is Pepper's thyroid dose",
+      "gold": [
+        "m064"
+      ]
+    },
+    {
+      "id": "q26",
+      "text": "which cat has kidney disease",
+      "gold": [
+        "m070"
+      ]
+    },
+    {
+      "id": "q27",
+      "text": "who is the vet",
+      "gold": [
+        "m067"
+      ]
+    },
+    {
+      "id": "q28",
+      "text": "what food does Mochi need",
+      "gold": [
+        "m066",
+        "m131"
+      ]
+    },
+    {
+      "id": "q29",
+      "text": "what did PR #16 change",
+      "gold": [
+        "m076"
+      ]
+    },
+    {
+      "id": "q30",
+      "text": "what was PR #593 about",
+      "gold": [
+        "m078"
+      ]
+    },
+    {
+      "id": "q31",
+      "text": "PR #19 entity boost",
+      "gold": [
+        "m083"
+      ]
+    },
+    {
+      "id": "q32",
+      "text": "what threshold does the mem0 recall hook use",
+      "gold": [
+        "m022"
+      ]
+    },
+    {
+      "id": "q33",
+      "text": "what embeddings does mem0 use",
+      "gold": [
+        "m020",
+        "m021"
+      ]
+    },
+    {
+      "id": "q34",
+      "text": "where does mem0 store its vectors",
+      "gold": [
+        "m020"
+      ]
+    },
+    {
+      "id": "q35",
+      "text": "rules for commit authorship",
+      "gold": [
+        "m075"
+      ]
+    },
+    {
+      "id": "q36",
+      "text": "should I open PRs against upstream",
+      "gold": [
+        "m074"
+      ]
+    },
+    {
+      "id": "q37",
+      "text": "what Grafana version are we on",
+      "gold": [
+        "m101"
+      ]
+    },
+    {
+      "id": "q38",
+      "text": "what Proxmox version does node006 run",
+      "gold": [
+        "m107"
+      ]
+    },
+    {
+      "id": "q39",
+      "text": "which port is the mem0 tunnel",
+      "gold": [
+        "m108"
+      ]
+    },
+    {
+      "id": "q40",
+      "text": "what is on port 9090",
+      "gold": [
+        "m110"
+      ]
+    },
+    {
+      "id": "q41",
+      "text": "at what disk usage do alerts fire",
+      "gold": [
+        "m116"
+      ]
+    },
+    {
+      "id": "q42",
+      "text": "where does Home Assistant run",
+      "gold": [
+        "m120"
+      ]
+    },
+    {
+      "id": "q43",
+      "text": "how are container images updated",
+      "gold": [
+        "m150"
+      ]
+    },
+    {
+      "id": "q44",
+      "text": "Kea lease time",
+      "gold": [
+        "m118"
+      ]
+    },
+    {
+      "id": "q45",
+      "text": "where are static DHCP leases defined",
+      "gold": [
+        "m119"
+      ]
+    },
+    {
+      "id": "q46",
+      "text": "what local models do I run",
+      "gold": [
+        "m125",
+        "m126"
+      ]
+    },
+    {
+      "id": "q47",
+      "text": "what car do I drive",
+      "gold": [
+        "m096",
+        "m097"
+      ]
+    },
+    {
+      "id": "q48",
+      "text": "where do homelab secrets live",
+      "gold": [
+        "m145",
+        "m030"
+      ]
+    },
+    {
+      "id": "q49",
+      "text": "how do pages get delivered when an alert fires",
+      "gold": [
+        "m115"
+      ]
+    },
+    {
+      "id": "q50",
+      "text": "why did node005 crash",
+      "gold": [
+        "m025"
+      ]
+    },
+    {
+      "id": "q51",
+      "text": "how do I reach the homelab when away from home",
+      "gold": [
+        "m028"
+      ]
+    },
+    {
+      "id": "q52",
+      "text": "where do MPC projects get backed up",
+      "gold": [
+        "m057"
+      ]
+    },
+    {
+      "id": "q53",
+      "text": "what are my cats' names",
+      "gold": [
+        "m061"
+      ]
+    },
+    {
+      "id": "q54",
+      "text": "what happened with Jellyfin",
+      "gold": [
+        "m039"
+      ]
+    },
+    {
+      "id": "q55",
+      "text": "what does the rack cost to run",
+      "gold": [
+        "m113",
+        "m112"
+      ]
+    },
+    {
+      "id": "q56",
+      "text": "PR #16 auth config change",
+      "gold": [
+        "m076"
+      ]
+    },
+    {
+      "id": "q57",
+      "text": "which PR added the nzbget exporter scrape config",
+      "gold": [
+        "m078"
+      ]
+    },
+    {
+      "id": "q58",
+      "text": "which PR fixed corrections being dropped",
+      "gold": [
+        "m077"
+      ]
+    },
+    {
+      "id": "q59",
+      "text": "does Kafka at my current job use ZooKeeper",
+      "gold": [
+        "m042"
+      ]
+    },
+    {
+      "id": "q60",
+      "text": "how much RAM does my laptop have",
+      "gold": [
+        "m124"
+      ]
+    },
+    {
+      "id": "q61",
+      "text": "Grafana dashboard for terminal bench results",
+      "gold": [
+        "m127"
+      ]
+    },
+    {
+      "id": "q62",
+      "text": "ok so the Kafka rebalance thing, can you remind me when we do those now and whether it's before or after the release",
+      "gold": [
+        "m044"
+      ]
+    },
+    {
+      "id": "q63",
+      "text": "I need to swap the failing disks in the media pool this weekend, which ones were they again",
+      "gold": [
+        "m004"
+      ]
+    },
+    {
+      "id": "q64",
+      "text": "lets look at why Plex keeps stuttering tonight, I think the transcoder might be hogging the GPU",
+      "gold": [
+        "m040"
+      ]
+    },
+    {
+      "id": "q65",
+      "text": "can you find the PR where we fixed how the server reads its auth config so I can reference it in the writeup",
+      "gold": [
+        "m076"
+      ]
+    },
+    {
+      "id": "q66",
+      "text": "before I deploy anything to the homelab, remind me how deploys are supposed to work there",
+      "gold": [
+        "m010",
+        "m086"
+      ]
+    },
+    {
+      "id": "q67",
+      "text": "the cat with the thyroid issue needs her meds soon, how much do I give her now",
+      "gold": [
+        "m064"
+      ]
+    },
+    {
+      "id": "q68",
+      "text": "I want to write a quick note to the vet about the oldest cat's kidneys, who do I send it to",
+      "gold": [
+        "m070",
+        "m067"
+      ]
+    },
+    {
+      "id": "q69",
+      "text": "prepping for the warehouse set next month, which drum machine and tempo am I using these days",
+      "gold": [
+        "m052",
+        "m051"
+      ]
+    },
+    {
+      "id": "q70",
+      "text": "what's the deal with the nightly backup timing, did we change it at some point",
+      "gold": [
+        "m027"
+      ]
+    },
+    {
+      "id": "q71",
+      "text": "mem0 search keeps returning junk in my sessions, what cutoff does the recall hook use again",
+      "gold": [
+        "m022"
+      ]
+    },
+    {
+      "id": "q72",
+      "text": "resume work on the media server, I forget which box the downloads land on and where they go",
+      "gold": [
+        "m036"
+      ]
+    },
+    {
+      "id": "q73",
+      "text": "merge in upstream and then look into why the search results rank weird, what did we change in PR 18",
+      "gold": [
+        "m082"
+      ]
+    },
+    {
+      "id": "n01",
+      "text": "what is a good sourdough hydration ratio",
+      "gold": []
+    },
+    {
+      "id": "n02",
+      "text": "how do I file taxes in Germany",
+      "gold": []
+    },
+    {
+      "id": "n03",
+      "text": "best ski resorts in Colorado",
+      "gold": []
+    },
+    {
+      "id": "n04",
+      "text": "how do I patch a bicycle inner tube",
+      "gold": []
+    },
+    {
+      "id": "n05",
+      "text": "what is the capital of Australia",
+      "gold": []
+    },
+    {
+      "id": "n06",
+      "text": "recommend a podcast about ancient Rome",
+      "gold": []
+    },
+    {
+      "id": "n07",
+      "text": "how does photosynthesis work",
+      "gold": []
+    },
+    {
+      "id": "n08",
+      "text": "what time does the farmers market open",
+      "gold": []
+    },
+    {
+      "id": "n09",
+      "text": "how do I knit a scarf",
+      "gold": []
+    },
+    {
+      "id": "n10",
+      "text": "what is the weather in Tokyo",
+      "gold": []
+    }
+  ],
+  "add_probes": [
+    "Ziggy knocked the MPC One off the desk again, but it still works.",
+    "The Kafka rebalance on Thursday took forty minutes because Cruise Control picked a big plan.",
+    "I swapped sdh in the data01 pool and the resilver is running.",
+    "Grafana on ocean now shows the Tdarr queue length.",
+    "Pepper's next thyroid blood test is in six weeks."
+  ]
+}
