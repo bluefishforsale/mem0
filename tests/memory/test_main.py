@@ -1234,6 +1234,17 @@ class TestAddTimestamp:
         payload = mock_memory.vector_store.insert.call_args.kwargs["payloads"][0]
         assert payload["created_at"].startswith("2023-05-24")
 
+    def test_unix_epoch_seconds_are_accepted(self, mock_memory):
+        """Epoch seconds are what the hosted API and the LOCOMO harness send.
+
+        Regression: only ISO strings and date objects parsed, so an integer
+        raised and an importer had to know this SDK's private preference.
+        """
+        mock_memory.add("I went to Paris last week", user_id="u1", timestamp=1684886400)
+
+        payload = mock_memory.vector_store.insert.call_args.kwargs["payloads"][0]
+        assert payload["created_at"].startswith("2023-05-24T00:00:00")
+
     @pytest.mark.asyncio
     async def test_async_timestamp_backdates_created_at(self, mocker):
         _setup_mocks(mocker)

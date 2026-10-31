@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import telemetry
 from auth import admin_api_key, auth_disabled, jwt_secret, require_admin, verify_auth
@@ -206,6 +206,13 @@ class MemoryCreate(BaseModel):
     run_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     expiration_date: Optional[str] = Field(None, description="Expiration date in YYYY-MM-DD format.")
+    timestamp: Optional[Union[int, float, str]] = Field(
+        None,
+        description=(
+            "When the conversation happened: Unix epoch seconds or an ISO-8601 date/datetime. "
+            "Relative references resolve against it and the memories carry it as created_at. Defaults to now."
+        ),
+    )
     infer: Optional[bool] = Field(None, description="Whether to extract facts from messages. Defaults to True.")
     memory_type: Optional[str] = Field(None, description="Type of memory to store (e.g. 'core').")
     prompt: Optional[str] = Field(None, description="Custom prompt to use for fact extraction.")

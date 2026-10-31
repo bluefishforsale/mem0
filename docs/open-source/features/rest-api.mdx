@@ -217,6 +217,20 @@ curl -X POST http://localhost:8888/memories \
   Expect a JSON response containing the new memory IDs and events (`ADD`, etc.).
 </Info>
 
+Importing an old transcript? Pass `timestamp` (Unix epoch seconds or an ISO-8601 date) so relative references like "last week" resolve against when the conversation happened, and the memories carry that date as `created_at`:
+
+```bash
+curl -X POST http://localhost:8888/memories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {"role": "user", "content": "I went to Paris last week."}
+    ],
+    "user_id": "alice",
+    "timestamp": 1684886400
+  }'
+```
+
 ```bash
 curl -X POST http://localhost:8888/search \
   -H "Content-Type: application/json" \
