@@ -19,7 +19,9 @@ cleanup() {
     "${compose[@]}" logs --no-color --tail 200 mem0 postgres ollama || true
   fi
   docker rm -f "$project-bench" >/dev/null 2>&1 || true
-  "${compose[@]}" --profile bench down -v --remove-orphans >/dev/null 2>&1 || true
+  # --rmi local: each run builds ~2GB of images named after its RUN_ID, and
+  # leaving them for the runner's nightly prune trips DiskWillFillSoon.
+  "${compose[@]}" --profile bench down -v --remove-orphans --rmi local >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
