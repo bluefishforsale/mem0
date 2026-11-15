@@ -1,280 +1,65 @@
 <p align="center">
-  <a href="https://github.com/mem0ai/mem0">
-    <img src="docs/images/banner-sm.png" width="800px" alt="Mem0 - The Memory Layer for Personalized AI">
-  </a>
+  <img src="docs/images/personal-fork.jpeg" width="800px" alt="MEMO, the personal fork by terracnosaur: a mem0 logo in a purple sombrero and heart-shaped sunglasses">
 </p>
 
-<p align="center">
-  <a href="https://luma.com/mem0-oxfm">
-    <img src="docs/images/halloween-happy-hour.png" width="450px" alt="Mem0 OSS Halloween Happy Hour: The People Who Read the Source. Tuesday, Oct 27, 5:00 PM, San Francisco. Costumes encouraged.">
-  </a>
-  <br>
-  <a href="https://luma.com/mem0-oxfm"><strong>🎃 Register here →</strong></a> · Contributors get priority
-</p>
-
-
-
-<p align="center" style="display: flex; justify-content: center; gap: 20px; align-items: center;">
-  <a href="https://trendshift.io/repositories/11194" target="blank">
-    <img src="https://trendshift.io/api/badge/repositories/11194" alt="mem0ai%2Fmem0 | Trendshift" width="250" height="55"/>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://mem0.ai">Learn more</a>
-  ·
-  <a href="https://mem0.dev/DiG">Join Discord</a>
-  ·
-  <a href="https://mem0.dev/demo">Demo</a>
-</p>
-
-<p align="center">
-  <a href="https://mem0.dev/DiG">
-    <img src="https://img.shields.io/badge/Discord-%235865F2.svg?&logo=discord&logoColor=white" alt="Mem0 Discord">
-  </a>
-  <a href="https://pepy.tech/project/mem0ai">
-    <img src="https://img.shields.io/pypi/dm/mem0ai" alt="Mem0 PyPI - Downloads">
-  </a>
-  <a href="https://github.com/mem0ai/mem0">
-    <img src="https://img.shields.io/github/commit-activity/m/mem0ai/mem0?style=flat-square" alt="GitHub commit activity">
-  </a>
-  <a href="https://pypi.org/project/mem0ai" target="blank">
-    <img src="https://img.shields.io/pypi/v/mem0ai?color=%2334D058&label=pypi%20package" alt="Package version">
-  </a>
-  <a href="https://www.npmjs.com/package/mem0ai" target="blank">
-    <img src="https://img.shields.io/npm/v/mem0ai" alt="Npm package">
-  </a>
-  <a href="https://www.ycombinator.com/companies/mem0">
-    <img src="https://img.shields.io/badge/Y%20Combinator-S24-orange?style=flat-square" alt="Y Combinator S24">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://mem0.ai/research"><strong>📄 Benchmarking Mem0's token-efficient memory algorithm →</strong></a>
-</p>
-
-## New Memory Algorithm (April 2026)
-
-| Benchmark | Old | New  | Tokens  | Latency p50  |
-| --- | --- | --- | --- | --- |
-| **LoCoMo** | 71.4 | **92.5** | 7.0K  | 0.88s  |
-| **LongMemEval** | 67.8 | **94.4** | 6.8K  | 1.09s  |
-| **BEAM (1M)** | — | **64.1** | 6.7K  | 1.00s  |
-| **BEAM (10M)** | — | **48.6** | 6.9K  | 1.05s  |
-
-All benchmarks run on the same production-representative model stack. Single-pass retrieval (one call, no agentic loops) at a top_200 retrieval budget. Scores reflect Mem0's managed platform, which includes proprietary optimizations not available in the open-source SDK; open-source users should expect directionally similar gains but not identical numbers.
+# mem0, the personal fork
 
-**What changed:**
-- **Single-pass ADD-only extraction** -- one LLM call, no UPDATE/DELETE. Memories accumulate; nothing is overwritten.
-- **Agent-generated facts are first-class** -- when an agent confirms an action, that information is now stored with equal weight.
-- **Entity linking** -- entities are extracted, embedded, and linked across memories for retrieval boosting.
-- **Multi-signal retrieval** -- semantic, BM25 keyword, and entity matching scored in parallel and fused.
-- **Temporal Reasoning** -- time-aware retrieval that ranks the right dated instance for queries about current state, past events, and upcoming plans.
+This is my fork of [mem0ai/mem0](https://github.com/mem0ai/mem0), and it runs the memory layer behind my own agents: a self-hosted server on my homelab, pgvector for storage, a local embedder, and a frontier model doing fact extraction. Upstream is a good memory library with a hosted platform attached. This fork is what happened after I started reading my own memories back and noticed which ones were wrong, stale, or missing, and then went and fixed the reasons why.
 
-See the [migration guide](https://docs.mem0.ai/migration/oss-v2-to-v3) for upgrade instructions. The [evaluation framework](https://github.com/mem0ai/memory-benchmarks) is open-sourced so anyone can reproduce the numbers.
+Everything below is a difference from upstream. For what mem0 is and how to use it in general, the [upstream docs](https://docs.mem0.ai) still apply. I merge upstream main regularly (merges, not rebases, because this main is published), so the fork tracks their fixes and adds mine on top.
 
-## Research Highlights
-- **92.5 on LoCoMo** -- +21 points over the previous algorithm
-- **94.4 on LongMemEval** -- +27 points, with 98.2 on assistant memory recall
-- **64.1 on BEAM (1M)** -- production-scale memory evaluation at 1M tokens
-- [Read the full paper](https://mem0.ai/research)
+## Memories that stay true
 
-# Introduction
+Upstream's add pipeline only ever adds. "User is vegetarian" from 2024 and "User eats meat again" from last week both come back in the same search, and nothing decides between them. Here the extraction step reports which existing memories a new fact makes untrue, and those get stamped `superseded_by` and `superseded_at`, hidden from `search()` and `get_all()`, and logged as a `SUPERSEDE` entry in `history()`. Pass `show_superseded=True` if you want to see them anyway.
 
-[Mem0](https://mem0.ai) ("mem-zero") enhances AI assistants and agents with an intelligent memory layer, enabling personalized AI interactions. It remembers user preferences, adapts to individual needs, and continuously learns over time—ideal for customer support chatbots, AI assistants, and autonomous systems.
+The flip side is restatements. Saying the same thing twice no longer stores it twice: anything at or above `dedup_similarity_threshold` (cosine, default 0.95) against an existing memory is rejected. A flagged contradiction is let through that gate on purpose, because a correction is usually worded almost exactly like the thing it corrects. "Scrub runs Tuesday, before the rebalance" corrected to "Thursday, after" used to vanish without a word, leaving the stale memory serving.
 
-### Key Features & Use Cases
+How many existing memories the extraction model gets to reason over is `add_context_top_k` (default 10). On a scope with a lot of memories about one topic, a small window quietly misses contradictions, so it's a knob now instead of a hardcoded ten.
 
-**Core Capabilities:**
-- **Multi-Level Memory**: Seamlessly retains User, Session, and Agent state with adaptive personalization
-- **Developer-Friendly**: Intuitive API, cross-platform SDKs, and a fully managed service option
+## Time actually means something
 
-**Applications:**
-- **AI Assistants**: Consistent, context-rich conversations
-- **Customer Support**: Recall past tickets and user history for tailored help
-- **Healthcare**: Track patient preferences and history for personalized care
-- **Productivity & Gaming**: Adaptive workflows and environments based on user behavior
+Upstream writes `created_at` and `updated_at` on every memory and then never reads them for ranking. Search here blends in an exponential freshness term, `0.5 ** (age_days / recency_half_life_days)`, with a 180 day default half-life. It carries the smallest weight in the blend (0.08), so it breaks ties and demotes stale memories without ever beating relevance. Set the half-life to 0 to turn it off.
 
-## 🚀 Quickstart Guide <a name="quickstart"></a>
+`add(timestamp=...)` works in the OSS SDK. Upstream raises "not supported" there, which means importing a year-old transcript dates every "last week" to last week. The timestamp sets both the extraction prompt's observation date and the memory's `created_at`, so recency measures when the thing happened rather than when I imported it. It takes ISO dates, datetimes, or Unix epoch seconds, and the REST server's `POST /memories` accepts it too.
 
-### Sign up as an agent
+## Retrieval that finds what's there
 
-AI agents can mint a working Mem0 API key in under five seconds — no email, no dashboard, no OTP. Four commands end-to-end:
+Hybrid search got a pile of fixes, mostly found by watching real queries on my own server miss:
 
-```bash
-# 1. Install
-npm install -g @mem0/cli      # or: pip install mem0-cli
+The pgvector keyword path ranks matches instead of requiring every term to appear, so one missing word no longer zeroes out an otherwise perfect hit. The BM25-style curve is fit to the score scale pgvector actually returns, and keyword-only hits make it into the candidate pool, which is also wider before reranking. Scores use fixed blend weights instead of a divisor derived from whatever else was in the batch, so a memory's score doesn't change depending on its neighbours. A keyword-only candidate is charged the lowest semantic score in the pool, so it can beat weak semantic hits with a strong term match but can't leapfrog results it never actually outscored. The score you get back is the one the threshold gated on, and the entity boost floor sits at 0.75 instead of 0.5.
 
-# 2. Sign up as an agent (replace `claude-code` with your name)
-mem0 init --agent --agent-caller claude-code
+## Config that tells you when you're wrong
 
-# 3. Add a memory
-mem0 add "I am using mem0"
+`MemoryConfig` uses `extra="forbid"`. Upstream silently drops keys it doesn't recognise, which means a misspelt knob reads as accepted and does nothing, and so does the `graph_store` key that v3 removed. Here both fail validation at config time, which is the only point where the mistake is still cheap to find.
 
-# 4. Search
-mem0 search "am I using mem0"
-```
+The three tuning knobs above (`recency_half_life_days`, `dedup_similarity_threshold`, `add_context_top_k`) are real config fields with documented defaults. The dedup bar in particular wants retuning per embedder, since embedding models don't share a cosine scale.
 
-The human owner can claim the account later with `mem0 init --email <their-email>` — same key, memories preserved. Full guide: [Sign up as an agent](https://docs.mem0.ai/platform/agent-signup).
+## No phoning home
 
-| | Library | Self-Hosted Server | Cloud Platform |
-|---|---------|-------------------|----------------|
-| **Best for** | Testing, prototyping | Teams running on their own infrastructure | Zero-ops production use |
-| **Setup** | `pip install mem0ai` | `docker compose up` | Sign up at [app.mem0.ai](https://app.mem0.ai?utm_source=oss&utm_medium=readme) |
-| **Dashboard** | -- | [Yes](https://docs.mem0.ai/open-source/setup) | Yes |
-| **Auth & API Keys** | -- | Yes | Yes |
-| **Advanced Features** | -- | Teasers | All included |
+Upstream's `notices.py` evaluated a PostHog feature flag on every add, search, get, update and delete, fired a telemetry event carrying the operation and its parameters, and printed whatever text the flag held to stderr, with A/B variants. Some error messages came from the flag too. I took it out: 1582 lines of module, 52 call sites, and the tests that went with them. Error text in this fork lives in this repository.
 
-Just testing? Use the library. Building for a team? Self-hosted. Want zero ops? Cloud.
+## The server
 
-### Library (pip / npm)
+The REST server image builds from this repository's own `mem0/` package. Upstream's Dockerfile built from `server/` alone and pulled `mem0ai` from PyPI, so in a fork every change under `mem0/` was inert once deployed. The image also bakes in spaCy and `en_core_web_sm`. Without spaCy, BM25 stops matching across word forms, and without the model mem0 downloads it on first use, which a LAN-only service shouldn't be doing.
 
-```bash
-pip install mem0ai
-```
+`MEM0_LLM_BASE_URL` and `MEM0_LLM_API_KEY` split the LLM from the embedder, so extraction can go to a frontier model while embeddings stay on local Ollama (the pgvector collection is fixed at the local model's dimensions anyway). Unset, they fall back to the shared `OPENAI_*` values.
 
-For enhanced hybrid search with BM25 keyword matching and entity extraction, install with NLP support:
+Auth config (`JWT_SECRET`, `ADMIN_API_KEY`, `AUTH_DISABLED`) is read per request rather than frozen at import, so a reconfigure changes the auth posture without a restart.
 
-```bash
-pip install mem0ai[nlp]
-python -m spacy download en_core_web_sm
-```
+On merge to main, `.github/workflows/build-and-push.yaml` builds the image, starts it against a real pgvector and reads a memory back out before anything is pushed to `ghcr.io/bluefishforsale/mem0-api-server`, then dispatches the deploy to my homelab. The smoke test is there because `docker build` happily exits 0 on an image that can't start, and the homelab deploy halts on an unhealthy service rather than rolling back.
 
-Install sdk via npm:
+## Measuring quality, not vibes
 
-```bash
-npm install mem0ai
-```
+`tests/quality/` is a retrieval regression gate: a synthetic homelab corpus of 460 memories and 73 labelled queries (10 with no right answer) run through the real `search()` and `add()` paths on pgvector, with frozen embeddings and a stub LLM. It checks recall@5, MRR, nDCG@10, returned-context tokens and extraction-prompt tokens against a committed baseline. Runs are bit-for-bit deterministic, so the tolerances are tight enough that reintroducing the old scoring bugs fails CI.
 
-### Self-Hosted Server
+`tests/quality/nightly/` is the end-to-end view: a throwaway compose stack shaped like production that runs LOCOMO from the pinned `evaluation/` submodule and pushes graded score, per-category accuracy, memory counts and returned tokens to a Pushgateway, so quality shows up as a trend line instead of a feeling.
 
-> **Note:** Self-hosted auth is on by default. Upgrading from a pre-auth build? Set `ADMIN_API_KEY`, register an admin through the wizard, or `AUTH_DISABLED=true` for local dev only. See [upgrade notes](https://docs.mem0.ai/open-source/setup#upgrade-notes).
+CI also runs the server tests (they had never executed in CI: fastapi wasn't in any installed extra, so every file skipped itself) and fails if the spaCy tests would skip instead of quietly passing.
 
-```bash
-# Recommended: one command — start the stack, create an admin, issue the first API key.
-cd server && make bootstrap
+## What I don't maintain
 
-# Manual: start the stack and finish setup via the browser wizard.
-cd server && docker compose up -d    # http://localhost:3000
-```
+The TypeScript SDK in `mem0-ts/` is unmaintained here. Nothing I deploy uses it, it has drifted from `mem0/` on purpose, and fixes don't get ported into it. The same goes for the integrations, CLIs and hosted-platform client, which come along with upstream merges and nothing more.
 
-See the [self-hosted docs](https://docs.mem0.ai/open-source/overview) for configuration.
+## License
 
-### Cloud Platform
-
-1. Sign up on [Mem0 Platform](https://app.mem0.ai?utm_source=oss&utm_medium=readme)
-2. Embed the memory layer via SDK or API keys
-3. Using hosted Qdrant vectors? See the [Platform migration guide](https://docs.mem0.ai/migration/oss-to-platform) to import them into Mem0 Platform.
-
-### CLI
-
-Manage memories from your terminal:
-
-```bash
-npm install -g @mem0/cli   # or: pip install mem0-cli
-
-mem0 init
-mem0 add "Prefers dark mode and vim keybindings" --user-id alice
-mem0 search "What does Alice prefer?" --user-id alice
-```
-
-See the [CLI documentation](https://docs.mem0.ai/platform/cli) for the full command reference.
-
-### Agent Skills
-
-Teach your AI coding assistant (Claude Code, Codex, Cursor, Windsurf, OpenCode, OpenClaw, and any tool that supports the skills standard) how to build with Mem0. Two categories:
-
-**Reference skills — always on** (SDK knowledge loaded into the assistant's context):
-
-```bash
-npx skills add https://github.com/mem0ai/mem0 --skill mem0
-npx skills add https://github.com/mem0ai/mem0 --skill mem0-cli
-npx skills add https://github.com/mem0ai/mem0 --skill mem0-vercel-ai-sdk
-```
-
-**Pipeline skills — run on demand** (execute an end-to-end workflow in an existing repo):
-
-```bash
-npx skills add https://github.com/mem0ai/mem0 --skill mem0-integrate
-npx skills add https://github.com/mem0ai/mem0 --skill mem0-test-integration
-npx skills add https://github.com/mem0ai/mem0 --skill mem0-oss-to-platform
-```
-
-Use `/mem0-integrate` to wire Mem0 into an existing repo via a test-first pipeline, then `/mem0-test-integration` to verify. Use `/mem0-oss-to-platform` to migrate an existing project from Mem0 OSS to the hosted Platform SDK. See the [skills catalog](./skills/) or [Vibecoding with Mem0](https://docs.mem0.ai/vibecoding) for the full picture.
-
-### Basic Usage
-
-Mem0 requires an LLM to function, with `gpt-5-mini` from OpenAI as the default. However, it supports a variety of LLMs; for details, refer to our [Supported LLMs documentation](https://docs.mem0.ai/components/llms/overview).
-
-Mem0 uses `text-embedding-3-small` from OpenAI as the default embedding model. For best results with hybrid search (semantic + keyword + entity boosting), we recommend using at least [Qwen 600M](https://huggingface.co/Alibaba-NLP/gte-Qwen2-1.5B-instruct) or a comparable embedding model. See [Supported Embeddings](https://docs.mem0.ai/components/embedders/overview) for configuration details.
-
-First step is to instantiate the memory:
-
-```python
-from openai import OpenAI
-from mem0 import Memory
-
-openai_client = OpenAI()
-memory = Memory()
-
-def chat_with_memories(message: str, user_id: str = "default_user") -> str:
-    # Retrieve relevant memories
-    relevant_memories = memory.search(query=message, filters={"user_id": user_id}, top_k=3)
-    memories_str = "\n".join(f"- {entry['memory']}" for entry in relevant_memories["results"])
-
-    # Generate Assistant response
-    system_prompt = f"You are a helpful AI. Answer the question based on query and memories.\nUser Memories:\n{memories_str}"
-    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": message}]
-    response = openai_client.chat.completions.create(model="gpt-5-mini", messages=messages)
-    assistant_response = response.choices[0].message.content
-
-    # Create new memories from the conversation
-    messages.append({"role": "assistant", "content": assistant_response})
-    memory.add(messages, user_id=user_id)
-
-    return assistant_response
-
-def main():
-    print("Chat with AI (type 'exit' to quit)")
-    while True:
-        user_input = input("You: ").strip()
-        if user_input.lower() == 'exit':
-            print("Goodbye!")
-            break
-        print(f"AI: {chat_with_memories(user_input)}")
-
-if __name__ == "__main__":
-    main()
-```
-
-For detailed integration steps, see the [Quickstart](https://docs.mem0.ai/quickstart) and [API Reference](https://docs.mem0.ai/api-reference).
-
-## 🔗 Integrations & Demos
-
-- **ChatGPT with Memory**: Personalized chat powered by Mem0 ([Live Demo](https://mem0.dev/demo))
-- **Browser Extension**: Store memories across ChatGPT, Perplexity, and Claude ([Chrome Extension](https://chromewebstore.google.com/detail/onihkkbipkfeijkadecaafbgagkhglop?utm_source=item-share-cb))
-- **Langgraph Support**: Build a customer bot with Langgraph + Mem0 ([Guide](https://docs.mem0.ai/integrations/langgraph))
-- **CrewAI Integration**: Tailor CrewAI outputs with Mem0 ([Example](https://docs.mem0.ai/integrations/crewai))
-
-## 📚 Documentation & Support
-
-- Full docs: https://docs.mem0.ai
-- Community: [Discord](https://mem0.dev/DiG) · [X (formerly Twitter)](https://x.com/mem0ai)
-- Contact: founders@mem0.ai
-
-## Citation
-
-We now have a paper you can cite:
-
-```bibtex
-@article{mem0,
-  title={Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory},
-  author={Chhikara, Prateek and Khant, Dev and Aryan, Saket and Singh, Taranjeet and Yadav, Deshraj},
-  journal={arXiv preprint arXiv:2504.19413},
-  year={2025}
-}
-```
-
-## ⚖️ License
-
-Apache 2.0 — see the [LICENSE](https://github.com/mem0ai/mem0/blob/main/LICENSE) file for details.
+Apache-2.0, same as upstream. The original work is mem0ai's; the mistakes in the differences above are mine.
