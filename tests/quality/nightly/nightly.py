@@ -7,6 +7,7 @@ alert. Pushes to a Prometheus Pushgateway when PUSHGATEWAY_URL is set.
 
 import json
 import os
+import runpy
 import subprocess
 import sys
 import time
@@ -19,10 +20,39 @@ OUT = Path("/out")
 CUTOFF = 10
 JOB = "mem0_locomo_nightly"
 
+# How long one answer or one verdict may take. The harness allows 120s and has
+# no flag for it, which was fine while ocean ran a model that answered in
+# seconds. Since 2026-11-12 it runs a dense 27B that decodes at about 6 tokens
+# per second and thinks before it answers, so most generations ran past 120s,
+# each was retried five times, and the run died at the job limit having scored a
+# third of the questions. 900s is room for a few thousand tokens at that speed.
+GENERATION_TIMEOUT_SECONDS = 900
+
+
+def give_the_judge_time():
+    """Raises the harness's default generation timeout, leaving an explicit one alone."""
+    from benchmarks.common import llm_client
+
+    original = llm_client.LLMClient.__init__
+
+    def patient(self, *args, **kwargs):
+        kwargs.setdefault("timeout", GENERATION_TIMEOUT_SECONDS)
+        original(self, *args, **kwargs)
+
+    llm_client.LLMClient.__init__ = patient
+
+
+def run_harness(argv):
+    # In this process, because the timeout is a constructor default inside the
+    # harness and the only way to reach it is to be the interpreter that imports it.
+    give_the_judge_time()
+    sys.argv = ["benchmarks.locomo.run", *argv]
+    runpy.run_module("benchmarks.locomo.run", run_name="__main__")
+
 
 def run_benchmark():
     cmd = [
-        sys.executable, "-m", "benchmarks.locomo.run",
+        sys.executable, __file__, "--harness",
         "--project-name", "nightly",
         "--backend", "oss",
         "--mem0-host", "http://mem0:8000",
@@ -111,4 +141,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:2] == ["--harness"]:
+        run_harness(sys.argv[2:])
+    else:
+        main()
