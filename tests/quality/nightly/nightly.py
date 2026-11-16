@@ -5,6 +5,7 @@ tests/quality/ cannot see without a real LLM, still get a trend line and an
 alert. Pushes to a Prometheus Pushgateway when PUSHGATEWAY_URL is set.
 """
 
+import inspect
 import json
 import os
 import runpy
@@ -34,6 +35,11 @@ def give_the_judge_time():
     from benchmarks.common import llm_client
 
     original = llm_client.LLMClient.__init__
+    # NOTE: if a bump of the evaluation submodule renames this parameter, the
+    # value below lands in **kwargs, is ignored, and the 120s default is back
+    # with nothing to show for it. Fail here instead.
+    if "timeout" not in inspect.signature(original).parameters:
+        raise RuntimeError("the harness's LLMClient no longer takes a timeout; see GENERATION_TIMEOUT_SECONDS")
 
     def patient(self, *args, **kwargs):
         kwargs.setdefault("timeout", GENERATION_TIMEOUT_SECONDS)

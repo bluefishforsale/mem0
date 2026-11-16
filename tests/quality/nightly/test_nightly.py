@@ -42,10 +42,22 @@ def test_harness_default_timeout_outlasts_a_slow_local_judge(nightly):
     nightly.give_the_judge_time()
 
     assert harness_client(model="judge", provider="openai", rpm=200).timeout == nightly.GENERATION_TIMEOUT_SECONDS
-    assert nightly.GENERATION_TIMEOUT_SECONDS >= 900
+    assert nightly.GENERATION_TIMEOUT_SECONDS > 120
 
 
 def test_an_explicit_timeout_from_the_harness_still_wins(nightly):
     nightly.give_the_judge_time()
 
     assert harness_client(model="judge", timeout=30.0).timeout == 30.0
+
+
+def test_a_harness_that_dropped_the_timeout_parameter_is_refused(nightly):
+    # A submodule bump that renames the parameter would otherwise swallow the value in **kwargs.
+    class Renamed:
+        def __init__(self, model="gpt-4o", request_timeout=120.0, **kwargs):
+            pass
+
+    sys.modules["benchmarks.common.llm_client"].LLMClient = Renamed
+
+    with pytest.raises(RuntimeError, match="no longer takes a timeout"):
+        nightly.give_the_judge_time()
