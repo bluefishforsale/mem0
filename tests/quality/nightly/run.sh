@@ -4,7 +4,9 @@
 #
 # Required: EXTRACTION_OPENAI_API_KEY, JUDGE_BASE_URL, JUDGE_API_KEY.
 # Optional: JUDGE_MODEL, CONVERSATIONS (default 0,1), MAX_QUESTIONS,
-#           PUSHGATEWAY_URL, COMMIT_SHA, OUT_DIR (default ./out next to this file).
+#           PUSHGATEWAY_URL, COMMIT_SHA, OUT_DIR (default ./out next to this file),
+#           EXTRACTION_BASE_URL (default OpenAI) and EXTRACTION_CA_PEM, for
+#           extraction through a gateway with a private CA (docker-compose.yml).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)

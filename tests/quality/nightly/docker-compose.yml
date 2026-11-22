@@ -55,8 +55,20 @@ services:
       MEM0_DEFAULT_EMBEDDER_MODEL: nomic-embed-homelab
       MEM0_EMBEDDING_DIMS: "768"
       MEM0_DEFAULT_LLM_MODEL: gpt-4o-mini
-      MEM0_LLM_BASE_URL: https://api.openai.com/v1
+      # OpenAI by default. The homelab nightly points this at ai-gateway on
+      # ocean and passes a gateway caller key as the API key, never a provider
+      # key, so the gateway counts and caps every extraction call.
+      MEM0_LLM_BASE_URL: ${EXTRACTION_BASE_URL:-https://api.openai.com/v1}
       MEM0_LLM_API_KEY: ${EXTRACTION_OPENAI_API_KEY:?set EXTRACTION_OPENAI_API_KEY}
+      # PEM of a private CA to trust for extraction, empty for none. ai-gateway
+      # serves TLS from one. An env var rather than a file because this stack
+      # has no bind mounts (see the top of this file); the command below
+      # appends it to certifi's bundle.
+      EXTRACTION_CA_PEM: ${EXTRACTION_CA_PEM:-}
+      # The openai SDK's httpx client reads SSL_CERT_FILE when set. It replaces
+      # the trust store rather than adding to it, so the file is certifi's
+      # bundle plus the CA, not the CA alone. Same arrangement as ocean's mem0.
+      SSL_CERT_FILE: /tmp/ca-bundle.crt
       # The benchmark's OSS client sends no credentials. Safe only because
       # nothing outside this compose network can reach the port.
       AUTH_DISABLED: "true"
@@ -64,6 +76,20 @@ services:
       # The image has no /app/history (ocean mounts one) and the server dies
       # at startup without the directory.
       HISTORY_DB_PATH: /tmp/history.db
+    # The image's CMD, after the trust bundle is built. A CA that is not a
+    # certificate fails the run here, at start, not one extraction at a time.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cat "$$(python -m certifi)" > /tmp/ca-bundle.crt
+        if [ -n "$$EXTRACTION_CA_PEM" ]; then
+          printf '%s\n' "$$EXTRACTION_CA_PEM" > /tmp/extraction-ca.crt
+          python -c "import ssl; ssl.create_default_context(cafile='/tmp/extraction-ca.crt')"
+          cat /tmp/extraction-ca.crt >> /tmp/ca-bundle.crt
+        fi
+        exec uvicorn main:app --host 0.0.0.0 --port 8000
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
       interval: 5s
