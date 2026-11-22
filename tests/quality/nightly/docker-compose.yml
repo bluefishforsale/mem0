@@ -115,3 +115,22 @@ services:
       PUSHGATEWAY_URL: ${PUSHGATEWAY_URL:-}
       COMMIT_SHA: ${COMMIT_SHA:-unknown}
       PG_DSN: postgresql://postgres:nightly@postgres:5432/postgres
+      # PEM of a private CA to trust for the judge, empty for none: the same
+      # arrangement as EXTRACTION_CA_PEM on the mem0 service, for a judge
+      # reached through ai-gateway. The harness calls it with the openai SDK,
+      # whose httpx client reads SSL_CERT_FILE.
+      JUDGE_CA_PEM: ${JUDGE_CA_PEM:-}
+      SSL_CERT_FILE: /tmp/ca-bundle.crt
+    # The image's CMD, after the trust bundle is built (see the mem0 service).
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cat "$$(python -m certifi)" > /tmp/ca-bundle.crt
+        if [ -n "$$JUDGE_CA_PEM" ]; then
+          printf '%s\n' "$$JUDGE_CA_PEM" > /tmp/judge-ca.crt
+          python -c "import ssl; ssl.create_default_context(cafile='/tmp/judge-ca.crt')"
+          cat /tmp/judge-ca.crt >> /tmp/ca-bundle.crt
+        fi
+        exec python nightly.py
