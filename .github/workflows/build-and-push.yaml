@@ -1,9 +1,10 @@
 name: build-and-push
 
-# Ships server/Dockerfile to GHCR and asks homelab to deploy it.
+# Ships server/Dockerfile to GHCR. Homelab's deploy poller deploys it once the
+# build job succeeds.
 #
-# NOTE: the image is smoke-tested BEFORE it is pushed and before homelab is
-# told about it. `docker build` exits 0 on an image that cannot start, and the
+# NOTE: the image is smoke-tested BEFORE it is pushed, so the build job only
+# succeeds, and homelab only deploys, on an image that started. `docker build` exits 0 on an image that cannot start, and the
 # homelab policy is halt-and-alert with no auto-rollback, so a bad push here
 # would recreate the working container with a crashlooping one and stop.
 
@@ -21,6 +22,7 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/mem0-api-server
 
 jobs:
+  # homelab's deploy_poller.yaml watches this job by name; don't rename it.
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -144,25 +146,3 @@ jobs:
         run: |
           docker push "${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}"
           docker push "${REGISTRY}/${IMAGE_NAME}:latest"
-
-      - name: Trigger homelab deployment
-        env:
-          HOMELAB_DISPATCH_TOKEN: ${{ secrets.HOMELAB_DISPATCH_TOKEN }}
-          COMMIT_SHA: ${{ github.sha }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-        run: |
-          PAYLOAD=$(jq -cn \
-            --arg sha "$COMMIT_SHA" \
-            --arg msg "$COMMIT_MESSAGE" \
-            '{event_type:"deploy-mem0",client_payload:{branch:"main",sha:$sha,commit_message:$msg,force_clean:false}}')
-          HTTP_CODE=$(curl -sS -o /tmp/dispatch.body -w "%{http_code}" -X POST \
-            -H "Authorization: Bearer $HOMELAB_DISPATCH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/bluefishforsale/homelab/dispatches \
-            -d "$PAYLOAD")
-          echo "HTTP $HTTP_CODE"
-          cat /tmp/dispatch.body
-          echo
-          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
-            exit 1
-          fi

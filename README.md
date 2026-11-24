@@ -46,7 +46,7 @@ The REST server image builds from this repository's own `mem0/` package. Upstrea
 
 Auth config (`JWT_SECRET`, `ADMIN_API_KEY`, `AUTH_DISABLED`) is read per request rather than frozen at import, so a reconfigure changes the auth posture without a restart.
 
-On merge to main, `.github/workflows/build-and-push.yaml` builds the image, starts it against a real pgvector and reads a memory back out before anything is pushed to `ghcr.io/bluefishforsale/mem0-api-server`, then dispatches the deploy to my homelab. The smoke test is there because `docker build` happily exits 0 on an image that can't start, and the homelab deploy halts on an unhealthy service rather than rolling back.
+On merge to main, `.github/workflows/build-and-push.yaml` builds the image, starts it against a real pgvector and reads a memory back out before anything is pushed to `ghcr.io/bluefishforsale/mem0-api-server`. My homelab's deploy poller sees that build job succeed and deploys the commit. The smoke test is there because `docker build` happily exits 0 on an image that can't start, and the homelab deploy halts on an unhealthy service rather than rolling back.
 
 ## Measuring quality, not vibes
 
